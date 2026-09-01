@@ -661,6 +661,10 @@ function toggleSound(){
   if(soundEnabled) getAudioCtx();
   updateSoundToggleIcon();
 }
+document.addEventListener('pointerdown', function unlockAudioOnce(){
+  getAudioCtx();
+  document.removeEventListener('pointerdown', unlockAudioOnce);
+}, {once:true});
 function updateSoundToggleIcon(){
   const btn = document.getElementById('sound-toggle-btn');
   if(btn) btn.textContent = soundEnabled ? '🔊' : '🔇';
@@ -2414,12 +2418,15 @@ const GAME_CATEGORIES = [
   ]}
 ];
 function gameSelectGridHTML(){
-  return GAME_CATEGORIES.map(cat => `
+  return GAME_CATEGORIES.map((cat, i) => {
+    const isLast = i === GAME_CATEGORIES.length-1;
+    return `
     <div class="log-round-title" style="margin-top:14px;">${esc(cat.title)}</div>
-    <div class="game-select-grid" style="margin-bottom:0;">
+    <div class="game-select-grid" ${isLast ? '' : 'style="margin-bottom:0;"'}>
       ${cat.games.map(g => `<button class="btn-secondary ${selectedGame===g.id?'mode-active':''}" onclick="selectedGame='${g.id}'; render(true)">${esc(g.label)}</button>`).join('')}
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 function livesSelector(){
   return `
@@ -12435,11 +12442,22 @@ function introToggleSound(){
 }
 (function initIntro(){
   const v = document.getElementById('intro-video');
+  const btn = document.getElementById('intro-sound-btn');
   if(!v) return;
   v.addEventListener('ended', introHide);
-  // Se anche l'autoplay muto viene bloccato (capita su alcuni browser molto
-  // restrittivi) non deve mai impedire l'accesso all'app: tolgo subito l'intro.
-  v.play().catch(introHide);
+  // Provo prima a partire CON l'audio attivo. Se il browser lo permette
+  // (dipende da regole di autoplay che variano da browser a browser e da
+  // interazioni precedenti dell'utente col sito) l'intro parte sonora di
+  // default; altrimenti ripiego automaticamente su muto, che i browser
+  // garantiscono sempre, cosi' l'intro non manca mai di partire.
+  v.muted = false;
+  v.play().then(()=>{
+    if(btn) btn.textContent = '🔊';
+  }).catch(()=>{
+    v.muted = true;
+    if(btn) btn.textContent = '🔇';
+    v.play().catch(introHide);
+  });
 })();
 
 // rendo raggiungibili le funzioni usate dai pulsanti della pagina
