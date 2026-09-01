@@ -716,7 +716,30 @@ function sndNoise(dur, opts){
   src.connect(filter); filter.connect(gain); gain.connect(ctx.destination);
   src.start(t0);
 }
-function sndCardPlay(){ sndNoise(0.14, {freq:3200, freqTo:900, peak:0.10, decay:2.2}); }
+let cardSoundBuffer = null, cardSoundLoading = null;
+function loadCardSoundBuffer(ctx){
+  if(cardSoundBuffer) return Promise.resolve(cardSoundBuffer);
+  if(cardSoundLoading) return cardSoundLoading;
+  cardSoundLoading = fetch('./card-sound.mp3')
+    .then(r => r.arrayBuffer())
+    .then(buf => ctx.decodeAudioData(buf))
+    .then(decoded => { cardSoundBuffer = decoded; return decoded; })
+    .catch(()=>{ cardSoundLoading = null; return null; });
+  return cardSoundLoading;
+}
+function sndCardPlay(){
+  const ctx = getAudioCtx();
+  if(!ctx) return;
+  loadCardSoundBuffer(ctx).then(buffer=>{
+    if(!buffer) return;
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const gain = ctx.createGain();
+    gain.gain.value = 0.55;
+    src.connect(gain); gain.connect(ctx.destination);
+    src.start();
+  });
+}
 function sndChip(){ sndTone(1400, 0.05, {type:'square', peak:0.06}); setTimeout(()=>sndTone(1100,0.04,{type:'square',peak:0.05}), 40); }
 function sndWin(){ [523.25,659.25,783.99,1046.5].forEach((f,i)=> sndTone(f, 0.22, {peak:0.11, delay:i*0.09})); }
 function sndSplash(){ sndNoise(0.35, {freq:2200, freqTo:200, peak:0.16, decay:1.6}); }
