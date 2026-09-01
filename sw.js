@@ -11,7 +11,7 @@
 // la prossima visita) e "cache-first" per tutto il resto (immagini delle
 // carte, icone, manifest) che cambia raramente.
 
-const CACHE_NAME = 'sala-giochi-v1';
+const CACHE_NAME = 'sala-giochi-v2';
 const APP_SHELL = [
   './',
   './index.html',
