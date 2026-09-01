@@ -327,13 +327,16 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
 }
 #intro-overlay.intro-hidden{ opacity:0; pointer-events:none; }
 #intro-video{ max-width:100%; max-height:100%; width:auto; height:auto; }
-#intro-sound-btn, #intro-skip-btn{
-  position:absolute; bottom:22px; background:rgba(20,20,20,0.6); color:#F1ECE1;
-  border:1px solid rgba(255,255,255,0.35); border-radius:20px; padding:8px 14px;
-  font-size:14px; cursor:pointer; backdrop-filter:blur(2px);
+#intro-start-hint{
+  position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  color:#F1ECE1; text-align:center; background:rgba(0,0,0,0.4); cursor:pointer;
 }
-#intro-sound-btn{ left:16px; padding:8px 12px; font-size:17px; }
-#intro-skip-btn{ right:16px; }
+#intro-start-hint p{ margin-top:10px; font-size:17px; font-weight:600; }
+#intro-skip-btn{
+  position:absolute; bottom:22px; right:16px; background:rgba(20,20,20,0.6); color:#F1ECE1;
+  border:1px solid rgba(255,255,255,0.35); border-radius:20px; padding:8px 14px;
+  font-size:14px; cursor:pointer; backdrop-filter:blur(2px); z-index:1;
+}
 /* ===== popup "hai perso" ===== */
 #loser-popup{
   position:fixed; inset:0; z-index:999998;
@@ -401,10 +404,13 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
 </script>
 </head>
 <body>
-<div id="intro-overlay">
-  <video id="intro-video" src="./intro.mp4" autoplay muted playsinline webkit-playsinline></video>
-  <button id="intro-sound-btn" onclick="introToggleSound()" title="Attiva/disattiva audio">🔇</button>
-  <button id="intro-skip-btn" onclick="introSkip()">Salta ›</button>
+<div id="intro-overlay" onclick="introStart()">
+  <video id="intro-video" src="./intro.mp4" playsinline webkit-playsinline preload="auto"></video>
+  <div id="intro-start-hint">
+    <div style="font-size:52px;">▶️</div>
+    <p>Tocca per iniziare</p>
+  </div>
+  <button id="intro-skip-btn" onclick="event.stopPropagation(); introSkip()">Salta ›</button>
 </div>
 <div class="wrap">
   <header class="top">
@@ -12433,31 +12439,43 @@ function introHide(){
   setTimeout(()=>{ overlay.remove(); }, 400);
 }
 function introSkip(){ introHide(); }
-function introToggleSound(){
+function introStart(){
   const v = document.getElementById('intro-video');
-  const btn = document.getElementById('intro-sound-btn');
+  const hint = document.getElementById('intro-start-hint');
   if(!v) return;
-  v.muted = !v.muted;
-  if(btn) btn.textContent = v.muted ? '🔇' : '🔊';
+  if(hint) hint.remove();
+  v.muted = false;
+  getAudioCtx(); // stesso gesto: sblocco anche i suoni di gioco per il resto della sessione
+  v.play().catch(()=>{
+    // rete di sicurezza estrema, non dovrebbe mai servire dato che e' un vero tap dell'utente
+    v.muted = true;
+    v.play().catch(introHide);
+  });
 }
 (function initIntro(){
   const v = document.getElementById('intro-video');
-  const btn = document.getElementById('intro-sound-btn');
+  const hint = document.getElementById('intro-start-hint');
   if(!v) return;
   v.addEventListener('ended', introHide);
-  // Provo prima a partire CON l'audio attivo. Se il browser lo permette
-  // (dipende da regole di autoplay che variano da browser a browser e da
-  // interazioni precedenti dell'utente col sito) l'intro parte sonora di
-  // default; altrimenti ripiego automaticamente su muto, che i browser
-  // garantiscono sempre, cosi' l'intro non manca mai di partire.
-  v.muted = false;
-  v.play().then(()=>{
-    if(btn) btn.textContent = '🔊';
-  }).catch(()=>{
-    v.muted = true;
-    if(btn) btn.textContent = '🔇';
-    v.play().catch(introHide);
-  });
+  // App installata sulla schermata Home (non aperta da un link nel browser):
+  // Chrome (e alcuni altri) permettono in questo caso l'autoplay con audio
+  // senza bisogno di alcun tocco preventivo. Su iOS Safari il comportamento
+  // non e' garantito allo stesso modo, ma il tentativo e' innocuo: se fallisce,
+  // ripiego comunque sul 'tocca per iniziare' che funziona sempre.
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  if(isStandalone){
+    v.muted = false;
+    getAudioCtx();
+    v.play().then(()=>{
+      if(hint) hint.remove();
+    }).catch(()=>{
+      // l'autoplay con audio non e' stato concesso: lascio il video fermo,
+      // cosi' l'esperienza resta coerente col 'tocca per iniziare' ancora
+      // visibile (che restera' l'unico modo per avviarlo, con audio garantito).
+      v.pause();
+      v.currentTime = 0;
+    });
+  }
 })();
 
 // rendo raggiungibili le funzioni usate dai pulsanti della pagina
