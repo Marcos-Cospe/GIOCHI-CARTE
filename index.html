@@ -944,6 +944,61 @@ function cardFxDealTable(names, myIndex, cardsPerPlayer, opts){
 
   return overlay;
 }
+// Stessa identica messa in scena della distribuzione (tavolo ovale con i
+// giocatori attorno), ma per il verso opposto: una sola carta che vola dal
+// posto di chi la gioca verso il centro, mostrata scoperta cosi' si vede
+// subito qual e' — usata quando un giocatore gioca/scarta una carta.
+async function cardFxThrowFromSeat(match, playerIds, throwerId, imgSrc){
+  if(!Array.isArray(playerIds) || playerIds.length<1 || !throwerId) return;
+  const claim = await getEffectiveClaim(match);
+  const myId = (claim && claim.type==='seat' && playerIds.includes(claim.playerId)) ? claim.playerId : playerIds[0];
+  const n = playerIds.length;
+  const myIdx = Math.max(0, playerIds.indexOf(myId));
+  const throwerIdx = Math.max(0, playerIds.indexOf(throwerId));
+  const orderedThrowerPos = ((throwerIdx - myIdx) % n + n) % n;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'deal-table-overlay';
+  const vw = Math.min(window.innerWidth || 360, 480);
+  const W = Math.min(vw-24, 360);
+  const H = Math.round(W*0.92);
+  const cx = W/2, cy = H/2;
+  const rx = W*0.40, ry = H*0.38;
+  const cardW = 30, cardH = 42;
+
+  function seatPos(i){
+    const angle = (i*(360/n)) * Math.PI/180;
+    return { x: cx + rx*Math.sin(angle), y: cy + ry*Math.cos(angle) };
+  }
+
+  let html = `<div style="position:relative;width:${W}px;height:${H}px;background:rgba(10,20,16,0.88);border-radius:16px;border:1px solid rgba(212,175,106,0.3);">`;
+  for(let i=0;i<n;i++){
+    const id = playerIds[(myIdx+i)%n];
+    const pos = seatPos(i);
+    const labelY = pos.y + (pos.y>=cy ? 24 : -24);
+    html += `<div class="deal-table-seat-name" style="left:${pos.x}px;top:${labelY}px;">${esc(nameOf(match,id))}${i===0?' (tu)':''}</div>`;
+  }
+  html += `</div>`;
+  overlay.innerHTML = html;
+  document.body.appendChild(overlay);
+  const stage = overlay.firstElementChild;
+
+  const fromPos = seatPos(orderedThrowerPos);
+  const card = document.createElement('div');
+  card.className = 'deal-table-card';
+  card.style.width = cardW+'px';
+  card.style.height = cardH+'px';
+  card.style.backgroundImage = `url("${imgSrc}")`;
+  card.style.backgroundSize = 'cover';
+  stage.appendChild(card);
+
+  gsap.set(card, { left:fromPos.x, top:fromPos.y, opacity:0, scale:0.7, rotate:Math.random()*30-15, xPercent:-50, yPercent:-50 });
+  gsap.timeline({
+    onComplete: ()=>{
+      gsap.to(overlay, { opacity:0, duration:0.22, ease:'power1.in', onComplete:()=>overlay.remove() });
+    }
+  }).to(card, { left:cx, top:cy, opacity:1, scale:1, rotate:0, duration:0.40, ease:'back.out(1.5)' });
+}
 function hudAvatar(name){
   const initial = (name||'?').trim().charAt(0).toUpperCase() || '?';
   return `<span class="hud-avatar">${esc(initial)}</span>`;
@@ -3025,6 +3080,7 @@ async function playScopaCard(matchId, playerId, cardId, chosenComboIdx){
 
   const wasLastPlay = isFinalPlayOfGame(match, playerId);
   const card = hand.splice(ci,1)[0];
+  cardFxThrowFromSeat(match, match.turnOrder, playerId, cardSrc(card.suit, card.rank));
   const isAce = !!(match.rules && match.rules.assoPigliaTutto && card.rank==='A' && match.table.length>0);
   const options = getCaptureOptions(match, card);
 
@@ -3350,6 +3406,7 @@ async function playCard(matchId, playerId, cardId, forcedValue){
   const ci = hand.findIndex(c=>c.id===cardId);
   if(ci<0) return;
   const card = hand.splice(ci,1)[0];
+  cardFxThrowFromSeat(match, match.turnOrder, playerId, cardSrc(card.suit, card.rank));
   const play = {playerId, card};
   if(isAssoDenari(card) && (forcedValue==='alto' || forcedValue==='basso')) play.forcedValue = forcedValue;
   trick.plays.push(play);
@@ -4246,6 +4303,7 @@ async function playBriscolaCard(matchId, playerId, cardId){
   const ci = hand.findIndex(c=>c.id===cardId);
   if(ci<0) return;
   const card = hand.splice(ci,1)[0];
+  cardFxThrowFromSeat(match, match.turnOrder, playerId, cardSrc(card.suit, card.rank));
   trick.plays.push({playerId, card});
 
   if(trick.plays.length === trick.turnOrder.length){
@@ -4818,6 +4876,7 @@ async function veciaDraw(matchId, drawerId, pickIndex){
   const pickIdx = (Number.isInteger(pickIndex) && pickIndex>=0 && pickIndex<fromHand.length)
     ? pickIndex : Math.floor(Math.random()*fromHand.length);
   const card = fromHand.splice(pickIdx,1)[0];
+  cardFxThrowFromSeat(match, match.turnOrder, fromId, CARD_IMG['back']);
   const hand = match.hands[drawerId];
   const matched = hand.some(c=>c.rank===card.rank); // c'e' gia' una carta dello stesso rango in mano?
   hand.push(card); // la carta pescata resta in mano finche' non si clicca "Scarta la coppia"
@@ -5166,6 +5225,7 @@ async function cavaCamisaFlip(matchId, flipperId){
   const hand = match.hands[flipperId];
   if(!hand.length) return;
   const card = hand.shift();
+  cardFxThrowFromSeat(match, match.turnOrder, flipperId, cardSrc(card.suit, card.rank));
   match.center.push(card);
   const specialValue = CAVA_SPECIALI[card.rank];
   let pileAwardedTo = null;
@@ -6190,6 +6250,7 @@ async function scala40Discard(matchId, playerId, cardId){
   if(idx<0) return;
   const wasOpenBefore = match.opened[playerId];
   const card = hand.splice(idx,1)[0];
+  cardFxThrowFromSeat(match, match.turnOrder, playerId, scala40ImageHref(card));
   match.discardPile.push(card);
   match.lastAction = {type:'discard', playerId, card};
   if(hand.length===0){
@@ -9489,6 +9550,7 @@ async function unoPlayCard(matchId, playerId, cardId){
   if(!unoCardPlayable(match, card)) return;
 
   hand.splice(idx,1);
+  cardFxThrowFromSeat(match, match.turnOrder, playerId, unoCardImageHref(card));
   match.discard.push(card);
   match.pendingDrawn = null;
 
@@ -9519,6 +9581,7 @@ async function unoAddToDump(matchId, playerId, cardId){
   const idx = hand.findIndex(c=>c.id===cardId);
   if(idx<0 || unoDumpKey(hand[idx])!==match.pendingDump.dumpKey) return;
   const card = hand.splice(idx,1)[0];
+  cardFxThrowFromSeat(match, match.turnOrder, playerId, unoCardImageHref(card));
   match.discard.push(card);
   match.pendingDump.played.push(card);
   match.lastAction = { type:'play', playerId, card, dumping:true };
