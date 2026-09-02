@@ -891,8 +891,13 @@ function cardFxDealTable(names, myIndex, cardsPerPlayer, opts){
   document.body.appendChild(overlay);
   const stage = overlay.firstElementChild;
 
-  const roundAdvance = n<=2 ? 0.13 : (n<=4 ? 0.10 : 0.08); // secondi
-  const perPlayerStagger = 0.022;
+  // Distribuzione una carta alla volta, in sequenza netta (non piu' a ronde
+  // sovrapposte pensate per la velocita'): ogni carta ha il proprio istante
+  // di partenza dedicato, girando tra i giocatori come farebbe un vero
+  // mazziere. Un piccolo overlap tra il volo di una carta e la partenza
+  // della successiva resta naturale, ma ogni carta e' ben visibile prima
+  // che parta quella dopo.
+  const cardInterval = 0.24; // secondi tra la partenza di una carta e la successiva
   const flightDuration = 0.40;
 
   const tl = gsap.timeline({
@@ -906,7 +911,7 @@ function cardFxDealTable(names, myIndex, cardsPerPlayer, opts){
 
   for(let round=0; round<cardsPerPlayer; round++){
     for(let p=0; p<n; p++){
-      const atTime = round*roundAdvance + p*perPlayerStagger;
+      const atTime = (round*n + p) * cardInterval;
       const pos = seatPos(p);
       // La pila cresce SEMPRE verso il centro del tavolo, mai verso il bordo
       // esterno dove sta il nome: una diagonale fissa, per chi siede in
