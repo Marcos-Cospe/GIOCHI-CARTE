@@ -308,6 +308,34 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
   .suit-ladder{margin-top:8px;}
 }
 .risiko-rotate-hint{ display:none; }
+@media (orientation: landscape){
+  body.risiko-match .risiko-board-layout{
+    display:flex; flex-direction:row; align-items:flex-start; gap:10px;
+  }
+  body.risiko-match .risiko-map-col{ flex:1.5; min-width:0; }
+  body.risiko-match .risiko-panel-col{
+    flex:1; min-width:0; max-height:calc(100vh - 120px); overflow-y:auto;
+  }
+  /* pulsanti piu' compatti nel pannello laterale, cosi' ce ne stanno di piu' senza scorrere */
+  body.risiko-match .risiko-panel-col .btn-primary,
+  body.risiko-match .risiko-panel-col .btn-secondary,
+  body.risiko-match .risiko-panel-col .btn-danger{
+    padding:7px 10px; font-size:12.5px;
+  }
+  body.risiko-match .risiko-panel-col .card{ padding:10px; }
+  body.risiko-match .risiko-panel-col .hint{ font-size:11.5px; margin:4px 0; }
+  /* comprimo tutto cio' che sta sopra la mappa, per lasciarle il massimo spazio verticale disponibile */
+  body.risiko-match header.top{ padding:4px 4px 2px; }
+  body.risiko-match header.top .brand{ font-size:15px; }
+  body.risiko-match header.top .tagline{ display:none; }
+  body.risiko-match #app > .card:first-child{ padding:5px 10px; margin-bottom:3px; }
+  body.risiko-match #app > .card:first-child h2{ font-size:13px; }
+  body.risiko-match .risiko-players-header{ padding:4px 10px; margin-bottom:3px; font-size:11.5px; }
+  body.risiko-match .risiko-board-layout ~ *,
+  body.risiko-match div[style*="border-color:#D4AF6A"]{ padding:4px 10px; margin-bottom:3px; font-size:11px; }
+  body.risiko-match .wrap{ padding-top:6px; }
+  body.risiko-match .lobby-head{ margin-bottom:2px; }
+}
 @media (orientation: portrait){
   body.risiko-match .risiko-rotate-hint{
     display:flex; position:fixed; inset:0; z-index:99999;
@@ -610,6 +638,7 @@ let startingLives = 3;     // 3 o 5, scelto a inizio partita
 let soloYourName = 'Tu';
 let hostNameValue = '';
 let soloBotCount = 3;
+let bjSeatChoice = 0; // posto scelto al tavolo (0-based) tra quelli occupati alla creazione
 let cavaCamisaHandsToWin = 2; // 2 o 3 mani vinte per vincere la partita
 let unoHandsToWin = 2; // 2, 3, 4 o 5 mani vinte per vincere la partita a UNO
 let forza4HandsToWin = 4; // 2, 3, 4 o 5 vittorie per vincere la partita a Forza 4
@@ -667,10 +696,10 @@ function toggleSound(){
   if(soundEnabled) getAudioCtx();
   updateSoundToggleIcon();
 }
-document.addEventListener('pointerdown', function unlockAudioOnce(){
-  getAudioCtx();
-  document.removeEventListener('pointerdown', unlockAudioOnce);
-}, {once:true});
+document.addEventListener('pointerdown', function(){
+  getAudioCtx(); // richiamabile a ogni tocco: se il context e' gia' attivo non ha alcun costo,
+                 // ma se si e' sospeso (es. dopo un periodo in background) lo riattiva sempre
+});
 function updateSoundToggleIcon(){
   const btn = document.getElementById('sound-toggle-btn');
   if(btn) btn.textContent = soundEnabled ? '🔊' : '🔇';
@@ -2128,6 +2157,11 @@ function rouletteOptionsPanel(){
     </div>`;
 }
 function blackjackOptionsPanel(){
+  bjSeatChoice = Math.min(bjSeatChoice, soloBotCount);
+  const totalSeats = soloBotCount+1;
+  const seatButtons = Array.from({length: totalSeats}, (_,i)=>
+    `<button class="btn-secondary btn-small ${i===bjSeatChoice?'mode-active':''}" onclick="bjSeatChoice=${i}; renderBlackjackOptionsInline()">Posto ${i+1}</button>`
+  ).join('');
   return `
     <div style="margin:16px 0;">
       <span style="font-size:14px;">Modalità:</span>
@@ -2138,6 +2172,9 @@ function blackjackOptionsPanel(){
       <p class="hint" style="margin:8px 0 0;">${blackjackMode==='free'
         ? 'Si gioca a oltranza: la partita finisce non appena un giocatore resta senza fiches.'
         : 'Dopo '+BJ_TOURNAMENT_ROUNDS+' mani vince chi ha più fiches. Chi resta senza fiches prima della fine aspetta gli altri.'}</p>
+      <p style="font-size:14px;margin-top:14px;">Dove ti siedi al tavolo:</p>
+      <div class="row-btns" style="margin-top:8px;flex-wrap:wrap;">${seatButtons}</div>
+      <p class="hint" style="margin:8px 0 0;">Determina l'ordine di turno rispetto ai bot. Se il tavolo non è al completo, tra una mano e l'altra potrai spostarti in un posto rimasto libero.</p>
     </div>`;
 }
 function renderBlackjackOptionsInline(){
@@ -2217,7 +2254,7 @@ function renderCreaSala(){
     ${selectedGame==='roulette' ? `<p class="hint" style="margin-top:8px;">Da 1 a ${ROULETTE_MAX_PLAYERS} giocatori, ognuno gioca contro il banco con le proprie fiches. Roulette europea, 37 numeri.</p>` : ''}
     <div id="blackjack-options-slot">${selectedGame==='blackjack' ? blackjackOptionsPanel() : ''}</div>
     ${selectedGame==='blackjack' ? `<p class="hint" style="margin-top:8px;">Da 1 a ${BJ_MAX_PLAYERS} giocatori, ognuno gioca contro il banco con le proprie fiches. Blackjack (asso+10) paga 3:2.</p>` : ''}
-    ${(selectedGame==='scopa'||selectedGame==='briscola'||selectedGame==='vecia'||selectedGame==='cavacamisa'||selectedGame==='uno'||selectedGame==='scala40'||selectedGame==='poker'||selectedGame==='forza4'||selectedGame==='battaglianavale'||selectedGame==='dama'||selectedGame==='scacchi'||selectedGame==='roulette'||selectedGame==='blackjack') ? '' : `<div id="lives-slot">${livesSelector()}</div>`}
+    ${(selectedGame==='scopa'||selectedGame==='briscola'||selectedGame==='vecia'||selectedGame==='cavacamisa'||selectedGame==='uno'||selectedGame==='scala40'||selectedGame==='poker'||selectedGame==='forza4'||selectedGame==='battaglianavale'||selectedGame==='dama'||selectedGame==='scacchi'||selectedGame==='roulette'||selectedGame==='blackjack'||selectedGame==='risiko') ? '' : `<div id="lives-slot">${livesSelector()}</div>`}
     <div class="row-btns" style="margin-top:16px;">
       <button class="btn-secondary" onclick="lobbyView='lobby'; render(true)">Indietro</button>
       <button class="btn-primary" onclick="createRoom()">Crea</button>
@@ -2482,6 +2519,7 @@ function renderSoloSetup(){
         : poker ? `<div id="poker-options-slot">${pokerOptionsPanel()}</div>`
         : roulette ? `<div id="roulette-options-slot">${rouletteOptionsPanel()}</div>`
         : blackjack ? `<div id="blackjack-options-slot">${blackjackOptionsPanel()}</div>`
+        : selectedGame==='risiko' ? ''
         : `<div id="lives-slot">${livesSelector()}</div>`}`}
     <div class="row-btns" style="margin-top:16px;">
       <button class="btn-secondary" onclick="lobbyView='lobby'; render(true)">Indietro</button>
@@ -2543,6 +2581,10 @@ function changeBotCount(delta){
   if(label) label.textContent = soloBotCount;
   const btn = document.getElementById('start-solo-btn');
   if(btn) btn.textContent = `Inizia (1 + ${soloBotCount} bot)`;
+  if(selectedGame==='blackjack'){
+    bjSeatChoice = Math.min(bjSeatChoice, soloBotCount);
+    renderBlackjackOptionsInline();
+  }
 }
 async function startSoloMatch(){
   soloMode = true; myRoomId = null; mySeatIdx = null; await rememberSeat();
@@ -2687,13 +2729,17 @@ async function startSoloMatch(){
   }
   if(selectedGame==='blackjack'){
     bjCurrentBet = 0;
-    const names = [yourName];
-    for(let i=1;i<=soloBotCount;i++) names.push('Bot '+i);
+    const names = [];
+    let botNum = 1;
+    for(let i=0;i<=soloBotCount;i++){
+      if(i===bjSeatChoice) names.push(yourName);
+      else { names.push('Bot '+botNum); botNum++; }
+    }
     const match = buildBlackjackMatch('m'+Date.now(), names, 1000, blackjackMode);
-    match.players.forEach((p,i)=>{ if(i>0) p.isBot=true; });
+    match.players.forEach((p,i)=>{ if(i!==bjSeatChoice) p.isBot=true; });
     await primeDeviceStatsCache('blackjack');
     await setActiveMatch(match);
-    await setClaim(match.id, {type:'seat', playerId:'p0'});
+    await setClaim(match.id, {type:'seat', playerId:'p'+bjSeatChoice});
     await render();
     return;
   }
@@ -6914,15 +6960,33 @@ function bjBotDecision(hand, canDouble, canSplit, chipsAvailable){
 function buildBlackjackMatch(id, names, startingChips, mode){
   const chips = startingChips || 1000;
   const players = names.map((name,i)=>({id:'p'+i, name, isBot:false, chips, busted:false}));
+  const seatSlots = players.map(p=>p.id);
+  while(seatSlots.length < BJ_MAX_PLAYERS) seatSlots.push(null);
   return {
     id, game:'blackjack', createdAt:new Date().toISOString(),
-    players, turnOrder: players.map(p=>p.id),
+    players, turnOrder: players.map(p=>p.id), seatSlots,
     mode: mode==='tournament' ? 'tournament' : 'free',
     phase:'betting', bets:{}, ready:{}, roundNumber:1,
     deck:[], hands:{}, dealerHand:null, dealerRevealed:false,
     currentPlayerId:null, currentHandIdx:0,
     winnerId:null, bustedPlayerId:null, tieWinners:null
   };
+}
+function bjSeatOf(match, playerId){ return match.seatSlots ? match.seatSlots.indexOf(playerId) : -1; }
+// Sposta un giocatore su un posto vuoto tra una mano e l'altra: ricalcola
+// l'ordine di turno in base alla nuova disposizione dei posti occupati.
+async function bjChangeSeat(matchId, playerId, targetSlot){
+  const match = await getActiveMatch();
+  if(!match || match.id!==matchId || match.phase!=='betting') return;
+  if(!match.seatSlots) return;
+  if(match.seatSlots[targetSlot]!==null) return; // posto gia' occupato
+  const curSlot = bjSeatOf(match, playerId);
+  if(curSlot<0) return;
+  match.seatSlots[curSlot] = null;
+  match.seatSlots[targetSlot] = playerId;
+  match.turnOrder = match.seatSlots.filter(s=>s!==null);
+  await setActiveMatch(match);
+  await render(true);
 }
 function bjPlayerHands(match, playerId){ return match.hands[playerId] || []; }
 function bjActiveHand(match){
@@ -7070,7 +7134,17 @@ async function bjRunDealerAndSettle(match){
   match.players.forEach(p=>{ if(p.chips<=0) p.chips=0; });
   // modalita' libera: chi resta senza fiches non finisce piu' la partita, puo' ricaricare
   // (come al vero tavolo del casino') o uscire quando vuole.
-  match.players.forEach(p=>{ if(p.chips<=0) p.busted = true; });
+  match.players.forEach(p=>{
+    if(p.chips<=0 && !p.busted){
+      p.busted = true;
+      // in torneo il posto resta vuoto per sempre (niente ricarica): lo libero
+      // cosi' diventa disponibile per chi vuole cambiare posizione al tavolo.
+      if(match.mode==='tournament' && match.seatSlots){
+        const slot = match.seatSlots.indexOf(p.id);
+        if(slot>=0) match.seatSlots[slot] = null;
+      }
+    }
+  });
   if(match.mode==='tournament' && match.roundNumber>=BJ_TOURNAMENT_ROUNDS){
     match.phase = 'ended';
     const maxChips = Math.max(...match.players.map(p=>p.chips));
@@ -8175,6 +8249,76 @@ function risikoSetValue(cards){
   return 4;
 }
 function risikoRollDice(n){ return Array.from({length:n}, ()=>1+Math.floor(Math.random()*6)).sort((a,b)=>b-a); }
+// Disegna la faccia di un dado con i classici puntini (layout standard 1-6).
+function risikoDieFaceSVG(value, size){
+  size = size || 46;
+  const pipPositions = {
+    1: [[50,50]],
+    2: [[28,28],[72,72]],
+    3: [[28,28],[50,50],[72,72]],
+    4: [[28,28],[72,28],[28,72],[72,72]],
+    5: [[28,28],[72,28],[50,50],[28,72],[72,72]],
+    6: [[28,25],[72,25],[28,50],[72,50],[28,75],[72,75]]
+  };
+  const pips = (pipPositions[value]||pipPositions[1]).map(([x,y])=>
+    `<circle cx="${x}" cy="${y}" r="8" fill="#1C2E22"/>`
+  ).join('');
+  return `<svg viewBox="0 0 100 100" width="${size}" height="${size}" style="display:block;">
+    <rect x="4" y="4" width="92" height="92" rx="16" fill="#F1ECE1" stroke="#B08B4A" stroke-width="3"/>
+    ${pips}
+  </svg>`;
+}
+// Anima il lancio dei dadi di un combattimento: mostra i dadi dell'attaccante
+// e del difensore che "rotolano" (cambiano faccia rapidamente) per un breve
+// istante, poi si fermano sui valori reali gia' calcolati, evidenziando con
+// un bordo dorato chi vince ogni confronto (le regole di Risiko: il valore
+// piu' alto vince, e a parita' vince il difensore).
+function risikoShowDiceRoll(attackDice, defendDice){
+  return new Promise(resolve=>{
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99997;background:rgba(10,20,16,0.82);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;';
+    const rowHTML = (label, dice, idPrefix) => `
+      <div style="text-align:center;">
+        <p style="color:#F1ECE1;font-size:13px;margin:0 0 8px;letter-spacing:0.5px;">${esc(label)}</p>
+        <div style="display:flex;gap:10px;justify-content:center;">
+          ${dice.map((v,i)=>`<div id="${idPrefix}${i}" style="transition:box-shadow 0.2s;border-radius:16px;">${risikoDieFaceSVG(1,52)}</div>`).join('')}
+        </div>
+      </div>`;
+    overlay.innerHTML = rowHTML('Attaccante', attackDice, 'rdie-a') + rowHTML('Difensore', defendDice, 'rdie-d');
+    document.body.appendChild(overlay);
+
+    const allDice = [
+      ...attackDice.map((v,i)=>({id:'rdie-a'+i, finalValue:v})),
+      ...defendDice.map((v,i)=>({id:'rdie-d'+i, finalValue:v}))
+    ];
+    let ticks = 0;
+    const rollInterval = setInterval(()=>{
+      ticks++;
+      allDice.forEach(d=>{
+        const el = document.getElementById(d.id);
+        if(el) el.innerHTML = risikoDieFaceSVG(1+Math.floor(Math.random()*6), 52);
+      });
+      if(ticks>=7){
+        clearInterval(rollInterval);
+        allDice.forEach(d=>{
+          const el = document.getElementById(d.id);
+          if(el) el.innerHTML = risikoDieFaceSVG(d.finalValue, 52);
+        });
+        // evidenzio i confronti vinti/persi (stessa logica di risikoDefend: a parita' vince il difensore)
+        const pairs = Math.min(attackDice.length, defendDice.length);
+        for(let i=0;i<pairs;i++){
+          const attWins = attackDice[i] > defendDice[i];
+          const aEl = document.getElementById('rdie-a'+i), dEl = document.getElementById('rdie-d'+i);
+          if(aEl) aEl.style.boxShadow = attWins ? '0 0 0 3px #6FA87A' : '0 0 0 3px #B25454';
+          if(dEl) dEl.style.boxShadow = attWins ? '0 0 0 3px #B25454' : '0 0 0 3px #6FA87A';
+        }
+        setTimeout(()=>{
+          gsap.to(overlay, { opacity:0, duration:0.3, onComplete:()=>{ overlay.remove(); resolve(); } });
+        }, 900);
+      }
+    }, 80);
+  });
+}
 
 // --- Missioni segrete (Risiko classico): 8 obiettivi territoriali + una
 // missione "distruggi le armate di colore X" per ciascuno dei 6 colori. Se
@@ -8451,6 +8595,11 @@ async function risikoDefend(matchId, defenderId, numDefDice){
   const toT = match.territories[battle.toId];
   numDefDice = Math.max(1, Math.min(numDefDice||1, 2, toT.armies));
   const defendDice = risikoRollDice(numDefDice);
+  const myClaim = await getEffectiveClaim(match);
+  const myId = myClaim && myClaim.type==='seat' ? myClaim.playerId : null;
+  if(myId===battle.attackerId || myId===battle.defenderId){
+    await risikoShowDiceRoll(battle.attackDice, defendDice);
+  }
   const pairs = Math.min(battle.attackDice.length, defendDice.length);
   let attackerLosses=0, defenderLosses=0;
   for(let i=0;i<pairs;i++){
@@ -8585,6 +8734,7 @@ async function risikoFortify(matchId, playerId, fromId, toId, amount){
   if(amount<=0) return;
   fromT.armies -= amount;
   match.territories[toId].armies += amount;
+  await setActiveMatch(match);
   await risikoEndTurn(matchId, playerId);
 }
 async function risikoEndTurn(matchId, playerId){
@@ -8700,7 +8850,7 @@ async function risikoBotTakeTurn(matchId, botId){
 // RISIKO — interfaccia
 // ============================================================
 function risikoPlayersHeaderHTML(match, currentPlayerId){
-  return `<div class="card" style="padding:8px 12px;"><div style="display:flex;flex-wrap:wrap;gap:2px 10px;">${
+  return `<div class="card risiko-players-header" style="padding:8px 12px;"><div style="display:flex;flex-wrap:wrap;gap:2px 10px;">${
     match.players.map(p=>{
       const n = risikoTerritoryCount(match, p.id);
       return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:13px;${p.eliminated?'opacity:0.4;text-decoration:line-through;':''}">
@@ -8925,8 +9075,10 @@ function renderRisikoMatch(match, claim){
       <button class="btn-danger btn-small" onclick="abandonMatch()">Abbandona</button></div>${lastLog}</div>
     ${risikoPlayersHeaderHTML(match, cur)}
     ${myMission}
-    ${risikoMapSVG(match.territories, match.players, mapOpts)}
-    ${panel}
+    <div class="risiko-board-layout">
+      <div class="risiko-map-col">${risikoMapSVG(match.territories, match.players, mapOpts)}</div>
+      <div class="risiko-panel-col">${panel}</div>
+    </div>
   `;
 }
 
@@ -11587,9 +11739,9 @@ function bsImpactOverlay(){
   return overlay;
 }
 function bsSplashAt(cellId){
+  sndSplash();
   const cellEl = document.getElementById(cellId);
   if(!cellEl || typeof gsap==='undefined') return;
-  sndSplash();
   const rect = cellEl.getBoundingClientRect();
   const cx = rect.left+rect.width/2, cy = rect.top+rect.height/2;
   const overlay = bsImpactOverlay();
@@ -11615,10 +11767,10 @@ function bsSplashAt(cellId){
   setTimeout(()=> overlay.remove(), 750);
 }
 function bsExplosionAt(cellId){
-  const cellEl = document.getElementById(cellId);
-  if(!cellEl || typeof gsap==='undefined') return;
   sndExplosion();
   vibrate([40]);
+  const cellEl = document.getElementById(cellId);
+  if(!cellEl || typeof gsap==='undefined') return;
   const rect = cellEl.getBoundingClientRect();
   const cx = rect.left+rect.width/2, cy = rect.top+rect.height/2;
   const overlay = bsImpactOverlay();
@@ -12379,11 +12531,28 @@ function bjHandTotalLabel(cards){
 function bjCardsHTML(cards, hideSecond){
   return cards.map((c,i)=> i===1 && hideSecond ? pokerCardBack(38,54) : pokerMiniCard(c,38,54)).join('');
 }
+function bjSeatsRowHTML(match, myId){
+  if(!match.seatSlots || !match.seatSlots.includes(null)) return ''; // tavolo al completo: nulla da mostrare
+  const mySlot = bjSeatOf(match, myId);
+  const seats = match.seatSlots.map((occId,i)=>{
+    if(occId){
+      const p = match.players.find(x=>x.id===occId);
+      const mine = occId===myId;
+      return `<span class="pill" style="${mine?'border-color:#D4AF6A;':''}">${i+1}: ${esc(p.name)}${p.isBot?' 🤖':''}</span>`;
+    }
+    return `<button class="btn-secondary btn-small" onclick="bjChangeSeat('${match.id}','${myId}',${i})">Posto ${i+1}: libero</button>`;
+  }).join(' ');
+  return `<div style="margin-bottom:10px;">
+    <p class="hint" style="margin-bottom:6px;">Il tavolo (tocca un posto libero per spostarti):</p>
+    <div class="row-pills" style="flex-wrap:wrap;gap:6px;">${seats}</div>
+  </div>`;
+}
 function bjBettingPanel(match, myId){
   const player = match.players.find(p=>p.id===myId);
   const chipRow = BJ_CHIP_PRESETS.map(v=>`<button class="btn-secondary btn-small" onclick="bjCurrentBet=Math.min(bjCurrentBet+${v}, ${player.chips}); sndChip(); render(true)">+${v}</button>`).join('');
   const statsHtml = match.mode==='free' && cachedBlackjackStats ? deviceStatsSummaryHTML(cachedBlackjackStats) : '';
   return `
+    ${bjSeatsRowHTML(match, myId)}
     <p class="hint">Fiches disponibili: <b>${player.chips}</b></p>
     <div class="row-btns" style="flex-wrap:wrap;">${chipRow}</div>
     <div class="turn-banner" style="text-align:center;margin-top:8px;">Puntata: <b>${bjCurrentBet}</b></div>
