@@ -3020,7 +3020,6 @@ async function playScopaCard(matchId, playerId, cardId, chosenComboIdx){
 
   const wasLastPlay = isFinalPlayOfGame(match, playerId);
   const card = hand.splice(ci,1)[0];
-  cardFxThrow(cardSrc(card.suit, card.rank));
   const isAce = !!(match.rules && match.rules.assoPigliaTutto && card.rank==='A' && match.table.length>0);
   const options = getCaptureOptions(match, card);
 
@@ -3347,7 +3346,6 @@ async function playCard(matchId, playerId, cardId, forcedValue){
   if(ci<0) return;
   const card = hand.splice(ci,1)[0];
   const play = {playerId, card};
-  cardFxThrow(cardSrc(card.suit, card.rank));
   if(isAssoDenari(card) && (forcedValue==='alto' || forcedValue==='basso')) play.forcedValue = forcedValue;
   trick.plays.push(play);
   if(!match.roundPlays) match.roundPlays = [];
@@ -4244,7 +4242,6 @@ async function playBriscolaCard(matchId, playerId, cardId){
   if(ci<0) return;
   const card = hand.splice(ci,1)[0];
   trick.plays.push({playerId, card});
-  cardFxThrow(cardSrc(card.suit, card.rank));
 
   if(trick.plays.length === trick.turnOrder.length){
     const winnerId = trickWinnerBriscola(trick.plays, match.briscolaSuit);
@@ -4819,7 +4816,6 @@ async function veciaDraw(matchId, drawerId, pickIndex){
   const hand = match.hands[drawerId];
   const matched = hand.some(c=>c.rank===card.rank); // c'e' gia' una carta dello stesso rango in mano?
   hand.push(card); // la carta pescata resta in mano finche' non si clicca "Scarta la coppia"
-  cardFxThrow(CARD_IMG['back']);
   match.lastDraw = {drawerId, fromId, suit:card.suit, rank:card.rank, matched};
   match.pendingReveal = true;
   await setActiveMatch(match);
@@ -5166,7 +5162,6 @@ async function cavaCamisaFlip(matchId, flipperId){
   if(!hand.length) return;
   const card = hand.shift();
   match.center.push(card);
-  cardFxThrow(cardSrc(card.suit, card.rank));
   const specialValue = CAVA_SPECIALI[card.rank];
   let pileAwardedTo = null;
 
@@ -5656,7 +5651,7 @@ async function newSolitarioGame(){
 async function solitarioDraw(){
   if(!solitarioGame) return;
   solitarioDrawFromReserve(solitarioGame);
-  if(solitarioGame.current) cardFxThrow(cardSrc(solitarioGame.current.suit, solitarioGame.current.rank));
+  
   await saveSolitarioGame();
   lastRenderKey = null;
   await render(true);
@@ -6192,7 +6187,6 @@ async function scala40Discard(matchId, playerId, cardId){
   const card = hand.splice(idx,1)[0];
   match.discardPile.push(card);
   match.lastAction = {type:'discard', playerId, card};
-  cardFxThrow(scala40ImageHref(card));
   if(hand.length===0){
     scala40FinishHand(match, playerId, !wasOpenBefore);
     await setActiveMatch(match);
@@ -9492,7 +9486,6 @@ async function unoPlayCard(matchId, playerId, cardId){
   hand.splice(idx,1);
   match.discard.push(card);
   match.pendingDrawn = null;
-  cardFxThrow(unoCardImageHref(card));
 
   // carte "gemelle" ancora in mano (stesso valore o stesso tipo, jolly compresi): se ce
   // ne sono, offro la possibilita' di scaricarle assieme nello stesso turno prima di
@@ -9524,7 +9517,6 @@ async function unoAddToDump(matchId, playerId, cardId){
   match.discard.push(card);
   match.pendingDump.played.push(card);
   match.lastAction = { type:'play', playerId, card, dumping:true };
-  cardFxThrow(unoCardImageHref(card));
   await setActiveMatch(match);
   await render();
 }
@@ -11381,7 +11373,7 @@ function bsGridHTML(board, opts){
   const totalH = cellSize+gap + BS_SIZE*(cellSize+gap);
 
   let html = `<div style="position:relative;max-width:${totalW}px;margin:0 auto;">`;
-  html += `<div style="display:grid;grid-template-columns:${colLabelW}px repeat(${BS_SIZE},1fr);gap:${gap}px;">`;
+  html += `<div style="display:grid;grid-template-columns:${colLabelW}px repeat(${BS_SIZE},1fr);grid-template-rows:${cellSize}px repeat(${BS_SIZE},1fr);gap:${gap}px;">`;
   html += `<div></div>`;
   for(let c=1;c<=BS_SIZE;c++) html += `<div style="text-align:center;font-size:9px;color:#8AA396;">${c}</div>`;
   BS_ROWS.forEach(r=>{
