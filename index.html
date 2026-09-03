@@ -12878,7 +12878,23 @@ function introHide(){
   if(v) v.pause();
   setTimeout(()=>{ overlay.remove(); }, 400);
 }
-function introSkip(){ introHide(); }
+function introSkip(){
+  // Anche saltando l'intro, sfrutto lo stesso tocco per un istante
+  // brevissimo (invisibile: l'overlay sparisce subito) di riproduzione
+  // NON muta del video: su iOS Safari l'audio di un elemento <video>
+  // ignora la levetta fisica del silenzioso (a differenza di <audio> e
+  // della Web Audio API), e farlo partire porta la sessione audio della
+  // pagina sulla categoria "riproduzione multimediale". Da quel momento
+  // in poi, per il resto della sessione, anche gli effetti sonori del
+  // gioco (Web Audio API) restano udibili col telefono in silenzioso.
+  const v = document.getElementById('intro-video');
+  if(v){
+    v.muted = false;
+    v.play().then(()=>{ setTimeout(()=>{ v.pause(); }, 250); }).catch(()=>{});
+  }
+  getAudioCtx();
+  introHide();
+}
 function introStart(){
   const v = document.getElementById('intro-video');
   const hint = document.getElementById('intro-start-hint');
