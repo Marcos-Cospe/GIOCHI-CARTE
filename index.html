@@ -8273,7 +8273,7 @@ function risikoDieFaceSVG(value, size){
 // istante, poi si fermano sui valori reali gia' calcolati, evidenziando con
 // un bordo dorato chi vince ogni confronto (le regole di Risiko: il valore
 // piu' alto vince, e a parita' vince il difensore).
-function risikoShowDiceRoll(attackDice, defendDice){
+function risikoShowDiceRoll(attackDice, defendDice, fast){
   return new Promise(resolve=>{
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;z-index:99997;background:rgba(10,20,16,0.82);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;';
@@ -8291,6 +8291,10 @@ function risikoShowDiceRoll(attackDice, defendDice){
       ...attackDice.map((v,i)=>({id:'rdie-a'+i, finalValue:v})),
       ...defendDice.map((v,i)=>({id:'rdie-d'+i, finalValue:v}))
     ];
+    const maxTicks = fast ? 3 : 7;
+    const tickMs = fast ? 45 : 80;
+    const pauseMs = fast ? 250 : 900;
+    const fadeMs = fast ? 0.15 : 0.3;
     let ticks = 0;
     const rollInterval = setInterval(()=>{
       ticks++;
@@ -8298,7 +8302,7 @@ function risikoShowDiceRoll(attackDice, defendDice){
         const el = document.getElementById(d.id);
         if(el) el.innerHTML = risikoDieFaceSVG(1+Math.floor(Math.random()*6), 52);
       });
-      if(ticks>=7){
+      if(ticks>=maxTicks){
         clearInterval(rollInterval);
         allDice.forEach(d=>{
           const el = document.getElementById(d.id);
@@ -8313,10 +8317,10 @@ function risikoShowDiceRoll(attackDice, defendDice){
           if(dEl) dEl.style.boxShadow = attWins ? '0 0 0 3px #B25454' : '0 0 0 3px #6FA87A';
         }
         setTimeout(()=>{
-          gsap.to(overlay, { opacity:0, duration:0.3, onComplete:()=>{ overlay.remove(); resolve(); } });
-        }, 900);
+          gsap.to(overlay, { opacity:0, duration:fadeMs, onComplete:()=>{ overlay.remove(); resolve(); } });
+        }, pauseMs);
       }
-    }, 80);
+    }, tickMs);
   });
 }
 
@@ -8597,9 +8601,8 @@ async function risikoDefend(matchId, defenderId, numDefDice){
   const defendDice = risikoRollDice(numDefDice);
   const myClaim = await getEffectiveClaim(match);
   const myId = myClaim && myClaim.type==='seat' ? myClaim.playerId : null;
-  if(myId===battle.attackerId || myId===battle.defenderId){
-    await risikoShowDiceRoll(battle.attackDice, defendDice);
-  }
+  const coinvolgeUmano = myId===battle.attackerId || myId===battle.defenderId;
+  await risikoShowDiceRoll(battle.attackDice, defendDice, !coinvolgeUmano);
   const pairs = Math.min(battle.attackDice.length, defendDice.length);
   let attackerLosses=0, defenderLosses=0;
   for(let i=0;i<pairs;i++){
@@ -9037,6 +9040,22 @@ function risikoFortifyPanel(match, myId, isMyTurn){
     </div>
   </div>`;
 }
+async function maybeSaveRisikoHistory(match){
+  if(match.phase!=='ended' || match._historySaved) return;
+  match._historySaved = true;
+  const ranked = match.players.map(p=>({name:p.name, isBot:p.isBot, rank: p.id===match.winnerId?1:2}));
+  const historyEntry = {
+    id:match.id, date:match.createdAt, endedAt:new Date().toISOString(),
+    game:'risiko', winner: nameOfRisiko(match, match.winnerId),
+    players: ranked, solo: match.players.some(p=>p.isBot)
+  };
+  const history = await getHistory();
+  history.unshift(historyEntry);
+  await saveHistory(history);
+  if(myRoomId){
+    try{ const list=(await getRooms()).filter(s=>s.id!==myRoomId); await saveRooms(list); }catch(e){}
+  }
+}
 function renderRisikoMatch(match, claim){
   const myId = claim && claim.type==='seat' ? claim.playerId : null;
   const cur = match.turnOrder[match.currentIdx];
@@ -9047,6 +9066,7 @@ function renderRisikoMatch(match, claim){
   }
 
   if(match.phase==='ended'){
+    maybeSaveRisikoHistory(match);
     const winner = match.players.find(p=>p.id===match.winnerId);
     const motivo = match.winReason==='objective'
       ? `Missione compiuta: ${esc(risikoObjectiveDescription(match, match.winnerId))}`
@@ -9055,7 +9075,7 @@ function renderRisikoMatch(match, claim){
     maybeShowLoserPopup(match.id, 'end', myId, perdenti);
     return `<div class="card" style="text-align:center;"><h2 style="margin:0;">🏆 ${esc(winner.name)} ha vinto!</h2><p class="hint" style="margin-top:6px;">${motivo}</p></div>
     ${risikoMapSVG(match.territories, match.players, {})}
-    <div class="row-btns" style="margin-top:10px;"><button class="btn-primary" onclick="abandonMatch()">Torna alla lobby</button></div>`;
+    <div class="row-btns" style="margin-top:10px;"><button class="btn-primary" onclick="backToLobbyFromEnd()">Torna alla lobby</button></div>`;
   }
 
   const phase = match.phase;
@@ -10802,13 +10822,14 @@ function renderHistory(history){
     const scacchi = h.game==='scacchi';
     const roulette = h.game==='roulette';
     const blackjack = h.game==='blackjack';
-    const gameLabel = scopa ? 'Scopa' : (briscola ? 'Briscola' : (vecia ? 'Vecia' : (cavacamisa ? 'Cava Camisa' : (uno ? 'UNO' : (scala40 ? 'Scala 40' : (poker ? 'Poker' : (forza4 ? 'Forza 4' : (battaglianavale ? 'Battaglia Navale' : (dama ? 'Dama' : (scacchi ? 'Scacchi' : (roulette ? 'Roulette' : (blackjack ? 'Black Jack' : 'Bisca'))))))))))));
+    const risiko = h.game==='risiko';
+    const gameLabel = scopa ? 'Scopa' : (briscola ? 'Briscola' : (vecia ? 'Vecia' : (cavacamisa ? 'Cava Camisa' : (uno ? 'UNO' : (scala40 ? 'Scala 40' : (poker ? 'Poker' : (forza4 ? 'Forza 4' : (battaglianavale ? 'Battaglia Navale' : (dama ? 'Dama' : (scacchi ? 'Scacchi' : (roulette ? 'Roulette' : (blackjack ? 'Black Jack' : (risiko ? 'Risiko' : 'Bisca')))))))))))));
     const detail = isOpen ? `
       <div class="history-detail">
         ${h.players.map(p=>`
           <div class="rank-row ${vecia ? (p.isLoser?'':'win') : (p.rank===1?'win':'')}">
             <span>${vecia ? '' : p.rank+'. '}${esc(p.name)}${p.isBot?' 🤖':''}</span>
-            <span>${scopa ? p.punti+' punti' : (briscola||cavacamisa||uno||forza4) ? p.maniVinte+' man'+(p.maniVinte===1?'o':'i')+' vinte' : (scala40 && h.mode==='ramino') ? p.punti+' punti di penalita\'' : scala40 ? p.maniVinte+' man'+(p.maniVinte===1?'o':'i')+' vinte' : poker ? p.chips+' fiches' : vecia ? (p.isLoser?'😱 è la Vecia':'✅ salvo') : battaglianavale ? (p.rank===1?'🏆 vincitore':'flotta affondata') : dama ? (p.rank===1?'🏆 vincitore':'sconfitto') : scacchi ? (h.isDraw?'🤝 pareggio':(p.rank===1?'🏆 vincitore':'scacco matto subito')) : (roulette||blackjack) ? p.chips+' fiches'+(p.rank===1?' 🏆':'') : (p.rank===1?'vincitore':'eliminato mano '+p.eliminatedAtRound)}</span>
+            <span>${scopa ? p.punti+' punti' : (briscola||cavacamisa||uno||forza4) ? p.maniVinte+' man'+(p.maniVinte===1?'o':'i')+' vinte' : (scala40 && h.mode==='ramino') ? p.punti+' punti di penalita\'' : scala40 ? p.maniVinte+' man'+(p.maniVinte===1?'o':'i')+' vinte' : poker ? p.chips+' fiches' : vecia ? (p.isLoser?'😱 è la Vecia':'✅ salvo') : battaglianavale ? (p.rank===1?'🏆 vincitore':'flotta affondata') : dama ? (p.rank===1?'🏆 vincitore':'sconfitto') : risiko ? (p.rank===1?'🏆 vincitore':'sconfitto') : scacchi ? (h.isDraw?'🤝 pareggio':(p.rank===1?'🏆 vincitore':'scacco matto subito')) : (roulette||blackjack) ? p.chips+' fiches'+(p.rank===1?' 🏆':'') : (p.rank===1?'vincitore':'eliminato mano '+p.eliminatedAtRound)}</span>
           </div>`).join('')}
         <div style="font-size:12px;color:var(--cream-dim);margin-top:6px;">${
           scopa ? 'formato '+(h.format||'1v1')+' · a '+(h.target||11)+' punti · '+h.rounds+' man'+(h.rounds===1?'o':'i')+' giocate'
@@ -10819,6 +10840,7 @@ function renderHistory(history){
           : forza4 ? 'prima a '+(h.handsToWin||4)+' vittorie · '+(h.dealNumber||1)+' man'+((h.dealNumber||1)===1?'o':'i')+' giocate'
           : battaglianavale ? 'partita secca'
           : dama ? 'partita secca'
+          : risiko ? 'partita secca'
           : scacchi ? 'partita secca'+(h.isDraw?' · '+(h.drawReason||'patta'):'')
           : roulette ? (h.rouletteMode==='tournament' ? 'torneo a 20 giri' : 'modalità libera')
           : blackjack ? (h.blackjackMode==='tournament' ? 'torneo a 20 mani' : 'modalità libera')
@@ -11033,7 +11055,7 @@ function renderScala40Match(match, claim){
       <h2>Scala 40 finita!</h2>
       <p class="hint">Vince <b>${esc(nameOf(match,match._winnerId))}</b></p>
       ${righe}
-      <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="abandonMatch()">Torna al menu</button>
+      <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="backToLobbyFromEnd()">Torna al menu</button>
     </div>`;
   }
 
@@ -11320,7 +11342,7 @@ function renderPokerMatch(match, claim){
       <h2>Torneo Poker finito!</h2>
       <p class="hint">Vince <b>${esc(nameOf(match,match._winnerId))}</b> con tutte le fiches del tavolo</p>
       ${righe}
-      <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="abandonMatch()">Torna al menu</button>
+      <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="backToLobbyFromEnd()">Torna al menu</button>
     </div>`;
   }
 
@@ -11498,7 +11520,7 @@ function renderForza4Match(match, claim){
       <h2>Forza 4 finito!</h2>
       <p class="hint">Vince <b>${esc(nameOf(match,match._winnerId))}</b></p>
       ${righe}
-      <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="abandonMatch()">Torna al menu</button>
+      <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="backToLobbyFromEnd()">Torna al menu</button>
     </div>`;
   }
 
@@ -11840,7 +11862,7 @@ function renderBattleshipMatch(match, claim){
     return `<div class="card">
       <h2>Battaglia Navale finita!</h2>
       <p class="hint">Vince <b>${esc(nameOf(match,match.winnerId))}</b> affondando l'intera flotta avversaria</p>
-      <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="abandonMatch()">Torna al menu</button>
+      <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="backToLobbyFromEnd()">Torna al menu</button>
     </div>`;
   }
 
@@ -12007,7 +12029,7 @@ function renderDamaMatch(match, claim){
     return `<div class="card">
       <h2>Dama finita!</h2>
       <p class="hint">Vince <b>${esc(nameOf(match,match.winnerId))}</b></p>
-      <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="abandonMatch()">Torna al menu</button>
+      <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="backToLobbyFromEnd()">Torna al menu</button>
     </div>`;
   }
 
@@ -12148,7 +12170,7 @@ function renderChessMatch(match, claim){
     return `<div class="card">
       <h2>Scacchi finiti!</h2>
       <p class="hint">${match.isDraw ? 'Partita patta ('+match.drawReason+')' : 'Vince <b>'+esc(nameOf(match,match.winnerId))+'</b> per scacco matto'}</p>
-      <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="abandonMatch()">Torna al menu</button>
+      <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="backToLobbyFromEnd()">Torna al menu</button>
     </div>`;
   }
 
@@ -12420,7 +12442,7 @@ function rouletteEndPanel(match, myId){
       <b>${esc(busted.name)}</b> è rimasto senza fiches — partita finita
     </div>
     ${ranking.map(p=>`<div class="rank-row ${p.id===match.bustedPlayerId?'':''}"><span>${esc(p.name)}${p.isBot?' 🤖':''}</span><span>${p.chips} fiches</span></div>`).join('')}
-    <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="abandonMatch()">Torna al menu</button>`;
+    <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="backToLobbyFromEnd()">Torna al menu</button>`;
   }
   // torneo
   const ranking = match.players.slice().sort((a,b)=>b.chips-a.chips);
@@ -12431,7 +12453,7 @@ function rouletteEndPanel(match, myId){
     <b>Torneo finito dopo ${ROULETTE_TOURNAMENT_ROUNDS} giri</b><br>${titolo}
   </div>
   ${ranking.map((p,i)=>`<div class="rank-row ${(match.tieWinners?match.tieWinners.includes(p.id):p.id===match.winnerId)?'win':''}"><span>${i+1}. ${esc(p.name)}${p.isBot?' 🤖':''}</span><span>${p.chips} fiches</span></div>`).join('')}
-  <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="abandonMatch()">Torna al menu</button>`;
+  <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="backToLobbyFromEnd()">Torna al menu</button>`;
 }
 // Sceglie il pulsante giusto: "Esci dal tavolo" (lascia il posto senza disturbare
 // gli altri) solo per Roulette/Black Jack in modalita' libera dentro una sala
@@ -12611,13 +12633,13 @@ function bjEndPanel(match){
     const ranking = match.players.slice().sort((a,b)=>b.chips-a.chips);
     return `<div class="turn-banner" style="text-align:center;"><b>${esc(busted.name)}</b> è rimasto senza fiches — partita finita</div>
       ${ranking.map(p=>`<div class="rank-row"><span>${esc(p.name)}${p.isBot?' 🤖':''}</span><span>${p.chips} fiches</span></div>`).join('')}
-      <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="abandonMatch()">Torna al menu</button>`;
+      <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="backToLobbyFromEnd()">Torna al menu</button>`;
   }
   const ranking = match.players.slice().sort((a,b)=>b.chips-a.chips);
   const titolo = match.tieWinners ? 'Pareggio tra ' + match.tieWinners.map(id=>esc(nameOf(match,id))).join(' e ') : 'Vince ' + esc(nameOf(match, match.winnerId));
   return `<div class="turn-banner" style="text-align:center;"><b>Torneo finito dopo ${BJ_TOURNAMENT_ROUNDS} mani</b><br>${titolo}</div>
     ${ranking.map((p,i)=>`<div class="rank-row ${(match.tieWinners?match.tieWinners.includes(p.id):p.id===match.winnerId)?'win':''}"><span>${i+1}. ${esc(p.name)}${p.isBot?' 🤖':''}</span><span>${p.chips} fiches</span></div>`).join('')}
-    <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="abandonMatch()">Torna al menu</button>`;
+    <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="backToLobbyFromEnd()">Torna al menu</button>`;
 }
 function renderBlackjackMatch(match, claim){
   const myId = claim.type==='seat' ? claim.playerId : null;
