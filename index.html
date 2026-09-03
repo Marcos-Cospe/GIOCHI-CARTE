@@ -860,6 +860,16 @@ let lastKnownRemoteRev = -1;    // ultima revisione condivisa vista, per accorge
 
 function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+// Fiche da poker riutilizzabile (Roulette e Texas Hold'em): un cerchietto con
+// bordo a spicchi bicolore (come il bordo dentellato di una vera fiche) e
+// l'importo al centro, al posto di un piatto badge/rettangolo.
+function pokerChipHTML(amount, size){
+  size = size || 20;
+  const label = amount>=1000 ? (Math.round(amount/100)/10)+'k' : amount;
+  const fontSize = Math.max(7, Math.round(size*0.36));
+  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;flex:0 0 auto;background:repeating-conic-gradient(#D4AF6A 0deg 22.5deg, #7A1E1E 22.5deg 45deg);border:1.5px solid #F1ECE1;box-shadow:0 1px 3px rgba(0,0,0,.55), inset 0 0 0 ${Math.max(2,Math.round(size*0.14))}px rgba(20,14,10,.88);color:#F1ECE1;font-size:${fontSize}px;font-weight:700;font-family:'IBM Plex Mono',monospace;text-shadow:0 1px 2px rgba(0,0,0,.8);line-height:1;">${label}</span>`;
+}
+
 // ===== popup "hai perso" (mano/round/scontro/partita) =====
 // Compare a volte, non sempre, e SOLO sullo schermo di chi ha effettivamente
 // perso quello specifico evento — in una sala online con dispositivi
@@ -7318,6 +7328,8 @@ const ROULETTE_RED = new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36])
 function rouletteColorOf(n){ if(n===0) return 'green'; return ROULETTE_RED.has(n) ? 'red' : 'black'; }
 const ROULETTE_BET_TYPES = {
   straight:  { numbers: (n)=>[n],                                    payout:35, label:n=>'Pieno '+n },
+  split:     { numbers: (nums)=>nums,                                payout:17, label:nums=>'Cavallo '+nums.join('-') },
+  corner:    { numbers: (nums)=>nums,                                payout:8,  label:nums=>'Angolo '+nums.join('-') },
   column:    { numbers: (col)=>{ const out=[]; for(let n=col;n<=36;n+=3) if(n>0) out.push(n); return out; }, payout:2, label:c=>'Colonna '+c },
   dozen:     { numbers: (d)=>{ const start=(d-1)*12+1; const out=[]; for(let n=start;n<start+12;n++) out.push(n); return out; }, payout:2, label:d=>['1ª (1-12)','2ª (13-24)','3ª (25-36)'][d-1] },
   red:       { numbers: ()=>[...ROULETTE_RED],                       payout:1, label:()=>'Rosso' },
@@ -7327,6 +7339,11 @@ const ROULETTE_BET_TYPES = {
   low:       { numbers: ()=>{ const out=[]; for(let n=1;n<=18;n++) out.push(n); return out; }, payout:1, label:()=>'Manque (1-18)' },
   high:      { numbers: ()=>{ const out=[]; for(let n=19;n<=36;n++) out.push(n); return out; }, payout:1, label:()=>'Passe (19-36)' },
 };
+// Confronto per valore (non per riferimento) del parametro di una puntata:
+// serve perche' cavallo/angolo usano un array di numeri come param, e due
+// array con gli stessi numeri non sono mai === in JS anche se rappresentano
+// la stessa puntata.
+function rouletteParamKey(p){ return Array.isArray(p) ? JSON.stringify(p.slice().sort((a,b)=>a-b)) : JSON.stringify(p===undefined?null:p); }
 function rouletteEvaluateBet(bet, winningNumber){
   const def = ROULETTE_BET_TYPES[bet.type];
   if(!def) return 0;
@@ -11263,7 +11280,7 @@ function pokerTableSVG(match, myId){
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':'#3C5A4C')}" stroke-width="${isTurn?2.4:1.8}"/>
         <text x="${x}" y="${y+3.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${8.5*fs}" font-weight="700" fill="#D4AF6A">${player.chips}</text>
         ${isBtn?`<circle cx="${x+avatarR*0.72}" cy="${y-avatarR*0.72}" r="${7*fs}" fill="#F1ECE1" stroke="#16261F" stroke-width="1"/><text x="${x+avatarR*0.72}" y="${y-avatarR*0.72+3*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${8*fs}" font-weight="800" fill="#16261F">D</text>`:''}
-        ${bet>0?`<rect x="${x-18*fs}" y="${y+avatarR+4*fs}" width="${36*fs}" height="${14*fs}" rx="${7*fs}" fill="rgba(212,175,106,0.18)" stroke="#D4AF6A" stroke-width="1"/><text x="${x}" y="${y+avatarR+14*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${8*fs}" fill="#D4AF6A">${bet}</text>`:''}
+        ${bet>0?`<foreignObject x="${x-14*fs}" y="${y+avatarR+3*fs}" width="${28*fs}" height="${28*fs}"><div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;">${pokerChipHTML(bet, 28*fs)}</div></foreignObject>`:''}
         <rect x="${lx-pillW/2}" y="${ly-11*fs}" width="${pillW}" height="${19*fs}" rx="${9.5*fs}" fill="rgba(10,20,16,0.92)" stroke="${isTurn?'#D4AF6A':'#3C5A4C'}" stroke-width="1"/>
         <text x="${lx}" y="${ly+3*fs}" text-anchor="middle" font-family="'Fraunces',serif" font-size="${11.5*fs}" font-weight="700" fill="${isTurn?'#D4AF6A':'#F1ECE1'}">${label}</text>
       </g>`;
@@ -12319,7 +12336,14 @@ function activateRouletteSpinAnimation(){
   const tl = gsap.timeline({
     onUpdate: ()=> place(state.angle, state.radius)
   });
-  tl.to(state, { angle: finalBallAngle - 360*1.15, radius: outerR, duration: ROULETTE_SPIN_DURATION*0.62, ease:'power1.in' })
+  // NB: la prima tween anima SOLO l'angolo (mai il raggio): se anche lei
+  // toccasse "radius" (anche come no-op verso outerR) confliggerebbe con la
+  // tween successiva che lo fa scendere verso innerR, dato che entrambe
+  // scriverebbero sulla stessa proprieta' dello stesso oggetto "state" nello
+  // stesso intervallo di tempo — la tween piu' lunga vincerebbe sempre alla
+  // fine, riportando la pallina sul bordo esterno invece di lasciarla
+  // scendere verso il centro (il bug segnalato).
+  tl.to(state, { angle: finalBallAngle - 360*1.15, duration: ROULETTE_SPIN_DURATION*0.62, ease:'power1.in' })
     .to(state, { radius: innerR, duration: ROULETTE_SPIN_DURATION*0.16, ease:'power1.in' }, '<')
     .to(state, { angle: finalBallAngle, duration: ROULETTE_SPIN_DURATION*0.38, ease:'back.out(2.2)' });
 
@@ -12369,7 +12393,7 @@ function rouletteWheelSVG(spinning, resultNumber){
     deflectors += `<circle cx="${dx.toFixed(2)}" cy="${dy.toFixed(2)}" r="3" fill="#D4AF6A" stroke="#8A6A2E" stroke-width="0.6"/>`;
   }
   const outerBallR = R + rimW*0.55;
-  const innerBallR = R*0.86;
+  const innerBallR = R*0.50;
   return `<div style="display:flex;justify-content:center;margin:14px 0;">
     <div style="position:relative;width:${size}px;height:${size}px;">
       <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="position:absolute;inset:0;">
@@ -12415,31 +12439,62 @@ function rouletteBettingBoard(match, myId){
   // mostrare a colpo d'occhio dove ho gia' puntato senza dover leggere la lista
   // testuale sotto. Sommo eventuali puntate multiple sulla stessa casella (es.
   // due fiches aggiunte in tempi diversi sullo stesso numero) in un unico badge.
-  function chipBadge(type, param){
-    const puntate = myBets.filter(b=> b.type===type && (param===undefined || b.param===param));
+  function chipBadge(type, param, size){
+    const filterKey = param===undefined ? undefined : rouletteParamKey(param);
+    const puntate = myBets.filter(b=> b.type===type && (filterKey===undefined || rouletteParamKey(b.param)===filterKey));
     if(!puntate.length) return '';
     const somma = puntate.reduce((s,b)=>s+b.amount,0);
-    return `<span style="position:absolute;top:-6px;right:-6px;background:#D4AF6A;color:#1B1410;border:1.5px solid #1B1410;border-radius:50%;min-width:20px;height:20px;padding:0 3px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.5);z-index:2;">${somma}</span>`;
+    return pokerChipHTML(somma, size||15);
   }
-  // griglia numeri 1-36 in 3 colonne x 12 righe (ordine tabellone reale: colonna 1 = 1,4,7...34 ecc)
-  let gridHtml = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;max-width:min(280px, 82vw);margin:8px auto;">`;
+  // griglia numeri 1-36 in 3 colonne x 12 righe (ordine tabellone reale: colonna 1 = 1,4,7...34
+  // ecc). Tra le caselle dei numeri sono interposte sottili tracce "cuscinetto"
+  // (griglia CSS 5 colonne x 23 righe: numeri sugli indici pari, cuscinetti sui
+  // dispari) che ospitano le zone cliccabili per cavallo (2 numeri adiacenti) e
+  // angolo (4 numeri): cosi' la loro posizione discende automaticamente dalla
+  // griglia, senza dover misurare pixel via JS.
+  const GUTTER = 13;
+  function splitHotspot(row, col, orientation){
+    const nums = orientation==='h' ? [row*3+col+1, row*3+col+2] : [row*3+col+1, (row+1)*3+col+1];
+    const gc = orientation==='h' ? 2*col+2 : 2*col+1;
+    const gr = orientation==='h' ? 2*row+1 : 2*row+2;
+    const chip = chipBadge('split', nums, 13);
+    const paramStr = '['+nums.join(',')+']';
+    return `<div onclick="roulettePlaceBet('${match.id}','${myId}','split',${paramStr},rouletteChipValue)" title="Cavallo ${nums.join('-')}" style="grid-column:${gc};grid-row:${gr};position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer;">
+      ${chip || `<span style="width:7px;height:7px;border-radius:50%;background:rgba(212,175,106,.5);"></span>`}
+    </div>`;
+  }
+  function cornerHotspot(row, col){
+    const nums = [row*3+col+1, row*3+col+2, (row+1)*3+col+1, (row+1)*3+col+2];
+    const gc = 2*col+2, gr = 2*row+2;
+    const chip = chipBadge('corner', nums, 13);
+    const paramStr = '['+nums.join(',')+']';
+    return `<div onclick="roulettePlaceBet('${match.id}','${myId}','corner',${paramStr},rouletteChipValue)" title="Angolo ${nums.join('-')}" style="grid-column:${gc};grid-row:${gr};position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer;">
+      ${chip || `<span style="width:7px;height:7px;border-radius:50%;background:rgba(212,175,106,.5);"></span>`}
+    </div>`;
+  }
+  let gridHtml = `<div style="display:grid;grid-template-columns:1fr ${GUTTER}px 1fr ${GUTTER}px 1fr;grid-template-rows:${Array(12).fill('34px').join(` ${GUTTER}px `)};max-width:min(280px, 82vw);margin:8px auto;">`;
   for(let row=0; row<12; row++){
     for(let col=0; col<3; col++){
       const n = row*3 + col + 1;
-      gridHtml += `<div style="position:relative;">
-        <div onclick="roulettePlaceBet('${match.id}','${myId}','straight',${n},rouletteChipValue)" style="${rouletteNumberCellStyle(n)}aspect-ratio:2.4;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer;border:1px solid #0A1410;">${n}</div>
-        ${chipBadge('straight', n)}
+      const chip = chipBadge('straight', n, 14);
+      gridHtml += `<div onclick="roulettePlaceBet('${match.id}','${myId}','straight',${n},rouletteChipValue)" style="${rouletteNumberCellStyle(n)}grid-column:${2*col+1};grid-row:${2*row+1};border-radius:4px;display:flex;align-items:center;justify-content:center;gap:3px;font-size:12px;cursor:pointer;border:1px solid #0A1410;padding:0 2px;overflow:hidden;">
+        <span>${n}</span>${chip}
       </div>`;
+      if(col<2) gridHtml += splitHotspot(row, col, 'h');
+    }
+    if(row<11){
+      for(let col=0; col<3; col++) gridHtml += splitHotspot(row, col, 'v');
+      for(let col=0; col<2; col++) gridHtml += cornerHotspot(row, col);
     }
   }
   gridHtml += `</div>`;
   const zeroHtml = `<div style="position:relative;max-width:min(280px, 82vw);margin:0 auto;">
-    <div onclick="roulettePlaceBet('${match.id}','${myId}','straight',0,rouletteChipValue)" style="${rouletteNumberCellStyle(0)}padding:8px;border-radius:4px;text-align:center;cursor:pointer;border:1px solid #0A1410;">0</div>
-    ${chipBadge('straight', 0)}
+    <div onclick="roulettePlaceBet('${match.id}','${myId}','straight',0,rouletteChipValue)" style="${rouletteNumberCellStyle(0)}padding:8px;border-radius:4px;display:flex;align-items:center;justify-content:center;gap:4px;cursor:pointer;border:1px solid #0A1410;">
+      <span>0</span>${chipBadge('straight', 0, 14)}
+    </div>
   </div>`;
-  const outsideBtn = (type,param,label)=>`<div style="position:relative;flex:1;">
-    <button class="btn-secondary btn-small" style="width:100%;" onclick="roulettePlaceBet('${match.id}','${myId}','${type}',${param===null?'null':JSON.stringify(param)},rouletteChipValue)">${label}</button>
-    ${chipBadge(type, param===null?undefined:param)}
+  const outsideBtn = (type,param,label)=>`<div style="position:relative;flex:1;display:flex;align-items:center;">
+    <button class="btn-secondary btn-small" style="width:100%;display:flex;align-items:center;justify-content:center;gap:5px;" onclick="roulettePlaceBet('${match.id}','${myId}','${type}',${param===null?'null':JSON.stringify(param)},rouletteChipValue)">${label}${chipBadge(type, param===null?undefined:param, 14)}</button>
   </div>`;
   const betListHtml = myBets.length ? `<div style="margin-top:10px;">
     <p style="font-size:12px;color:var(--cream-dim);margin:4px 0;">Le tue puntate (${totPuntato} in gioco):</p>
