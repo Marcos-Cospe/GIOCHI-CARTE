@@ -305,7 +305,7 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
 }
 @media (orientation: landscape) and (max-width: 900px) and (max-height: 500px){
   /* telefono girato: schermo basso, riduco i margini verticali per stare nello spazio */
-  .card{padding:12px;margin-bottom:10px;}
+  .card{padding:10px;margin-bottom:6px;}
   header.top{padding:10px 4px 8px;}
   .brand{font-size:28px;}
   .tagline{margin-top:2px;}
@@ -321,6 +321,12 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
   .boardgame-info-col h3{margin-top:4px;}
   .bs-grids-row{display:flex;flex-direction:row;gap:10px;}
   .bs-grids-row > div{flex:1;min-width:0;}
+  /* Black Jack: banco + mia mano a sinistra, avversari in colonna compatta
+     a destra invece che impilati sotto — usa la larghezza che avanza in
+     orizzontale invece di continuare a scendere in altezza. */
+  .bj-table-layout{display:flex;flex-direction:row;gap:10px;align-items:flex-start;}
+  .bj-table-main{flex:1.3;min-width:0;}
+  .bj-table-others{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;}
 }
 .risiko-rotate-hint{ display:none; }
 @media (orientation: landscape){
@@ -949,9 +955,22 @@ function cardFxDealBurst(handSize, backImgSrc){
 // trattate come stringhe opache in assenza di @property — e gestisce da solo
 // la composizione di piu' trasformazioni (posizione, scala, rotazione) sullo
 // stesso elemento, senza bisogno di ricostruire a mano la stringa transform.
+// Tavolo ovale di distribuzione/lancio: un solo overlay alla volta. Se ne
+// parte uno nuovo mentre il precedente sta ancora finendo di sparire (es.
+// un bot gioca subito dopo un altro), tolgo di scatto quello vecchio invece
+// di lasciare che due si sovrappongano sullo schermo.
+let activeSeatOverlayEl = null;
+function killActiveSeatOverlay(){
+  if(activeSeatOverlayEl){
+    gsap.killTweensOf(activeSeatOverlayEl);
+    activeSeatOverlayEl.remove();
+    activeSeatOverlayEl = null;
+  }
+}
 function cardFxDealTable(names, myIndex, cardsPerPlayer, opts){
   opts = opts || {};
   if(!Array.isArray(names) || names.length<1) return;
+  killActiveSeatOverlay();
   const n = names.length;
   cardsPerPlayer = Math.max(1, cardsPerPlayer||1);
   const start = ((myIndex||0) % n + n) % n;
@@ -959,6 +978,7 @@ function cardFxDealTable(names, myIndex, cardsPerPlayer, opts){
 
   const overlay = document.createElement('div');
   overlay.className = 'deal-table-overlay';
+  activeSeatOverlayEl = overlay;
   const vw = Math.min(window.innerWidth || 360, 480);
   const W = Math.min(vw-24, 360);
   const H = Math.round(W*0.92);
@@ -972,7 +992,7 @@ function cardFxDealTable(names, myIndex, cardsPerPlayer, opts){
     return { x: cx + rx*Math.sin(angle), y: cy + ry*Math.cos(angle) };
   }
 
-  let html = `<div style="position:relative;width:${W}px;height:${H}px;background:rgba(10,20,16,0.88);border-radius:16px;border:1px solid rgba(212,175,106,0.3);">`;
+  let html = `<div style="position:relative;width:${W}px;height:${H}px;background:#16261F;box-shadow:0 8px 30px rgba(0,0,0,.5);border-radius:16px;border:1px solid rgba(212,175,106,0.3);">`;
   html += `<img class="deal-table-deck" src="${backSrc}" style="left:${cx}px;top:${cy}px;width:${cardW}px;height:${cardH}px;" alt="">`;
   ordered.forEach((name,i)=>{
     const pos = seatPos(i);
@@ -997,7 +1017,7 @@ function cardFxDealTable(names, myIndex, cardsPerPlayer, opts){
     onComplete: ()=>{
       gsap.to(overlay, {
         opacity: 0, duration: 0.22, ease: 'power1.in',
-        onComplete: ()=>{ overlay.remove(); if(typeof opts.onDone==='function') opts.onDone(); }
+        onComplete: ()=>{ overlay.remove(); if(activeSeatOverlayEl===overlay) activeSeatOverlayEl=null; if(typeof opts.onDone==='function') opts.onDone(); }
       });
     }
   });
@@ -1043,7 +1063,18 @@ function cardFxDealTable(names, myIndex, cardsPerPlayer, opts){
 // subito qual e' — usata quando un giocatore gioca/scarta una carta.
 async function cardFxThrowFromSeat(match, playerIds, throwerId, imgSrc){
   if(!Array.isArray(playerIds) || playerIds.length<1 || !throwerId) return;
+  sndCardPlay();
+  // Questa funzione parte senza essere attesa (fire-and-forget) da chi gioca
+  // la carta, e getEffectiveClaim() e' asincrona: se nel frattempo la
+  // schermata e' gia' passata a un'altra (es. il riepilogo della presa
+  // appena conclusa), l'animazione arriverebbe in ritardo sopra contenuto
+  // che non c'entra piu' niente. La guardia sul numero di generazione (la
+  // stessa usata da render() per evitare scritture superate) evita di
+  // mostrarla in quel caso, invece di lasciarla comparire fuori contesto.
+  const genAtCall = renderGen;
   const claim = await getEffectiveClaim(match);
+  if(renderGen!==genAtCall) return;
+  killActiveSeatOverlay();
   const myId = (claim && claim.type==='seat' && playerIds.includes(claim.playerId)) ? claim.playerId : playerIds[0];
   const n = playerIds.length;
   const myIdx = Math.max(0, playerIds.indexOf(myId));
@@ -1052,6 +1083,7 @@ async function cardFxThrowFromSeat(match, playerIds, throwerId, imgSrc){
 
   const overlay = document.createElement('div');
   overlay.className = 'deal-table-overlay';
+  activeSeatOverlayEl = overlay;
   const vw = Math.min(window.innerWidth || 360, 480);
   const W = Math.min(vw-24, 360);
   const H = Math.round(W*0.92);
@@ -1064,7 +1096,7 @@ async function cardFxThrowFromSeat(match, playerIds, throwerId, imgSrc){
     return { x: cx + rx*Math.sin(angle), y: cy + ry*Math.cos(angle) };
   }
 
-  let html = `<div style="position:relative;width:${W}px;height:${H}px;background:rgba(10,20,16,0.88);border-radius:16px;border:1px solid rgba(212,175,106,0.3);">`;
+  let html = `<div style="position:relative;width:${W}px;height:${H}px;background:#16261F;box-shadow:0 8px 30px rgba(0,0,0,.5);border-radius:16px;border:1px solid rgba(212,175,106,0.3);">`;
   for(let i=0;i<n;i++){
     const id = playerIds[(myIdx+i)%n];
     const pos = seatPos(i);
@@ -1088,7 +1120,7 @@ async function cardFxThrowFromSeat(match, playerIds, throwerId, imgSrc){
   gsap.set(card, { left:fromPos.x, top:fromPos.y, opacity:0, scale:0.7, rotate:Math.random()*30-15, xPercent:-50, yPercent:-50 });
   gsap.timeline({
     onComplete: ()=>{
-      gsap.to(overlay, { opacity:0, duration:0.22, ease:'power1.in', onComplete:()=>overlay.remove() });
+      gsap.to(overlay, { opacity:0, duration:0.22, ease:'power1.in', onComplete:()=>{ overlay.remove(); if(activeSeatOverlayEl===overlay) activeSeatOverlayEl=null; } });
     }
   }).to(card, { left:cx, top:cy, opacity:1, scale:1, rotate:0, duration:0.40, ease:'back.out(1.5)' });
 }
@@ -12658,6 +12690,28 @@ function bjCardsHTML(cards, hideSecond){
   const w = compact ? 30 : 38, h = compact ? 42 : 54;
   return cards.map((c,i)=> i===1 && hideSecond ? pokerCardBack(w,h) : pokerMiniCard(c,w,h)).join('');
 }
+// Carte in miniatura per le mani degli altri giocatori (bot) durante la
+// fase di gioco: a differenza della mia mano, che serve leggere bene per
+// decidere la prossima mossa, quelle altrui sono solo un riferimento — con
+// 3-4 avversari al tavolo, mostrarle a piena grandezza in blocchi separati
+// e' quello che manda la pagina fuori schermo su un telefono.
+function bjTinyCardsHTML(cards){
+  return cards.map(c=>pokerMiniCard(c,20,28)).join('');
+}
+function bjCompactHandsHTML(match, forPlayerId){
+  const hands = bjPlayerHands(match, forPlayerId);
+  if(!hands.length) return '';
+  const p = match.players.find(x=>x.id===forPlayerId);
+  const isCurrent = match.phase==='playing' && match.currentPlayerId===forPlayerId;
+  return hands.map(h=>{
+    const outcomeIcon = h.outcome ? ({blackjack:'🏆',win:'✅',push:'➖',lose:'❌'})[h.outcome] : '';
+    return `<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:8px;background:rgba(255,255,255,.04);${isCurrent?'border:1px solid #D4AF6A;':'border:1px solid transparent;'}">
+      <span style="font-size:12px;font-weight:600;white-space:nowrap;">${esc(p.name)}${p.isBot?' 🤖':''}</span>
+      <div style="display:flex;gap:1px;">${bjTinyCardsHTML(h.cards)}</div>
+      <span class="hint" style="margin:0;white-space:nowrap;">${bjHandTotalLabel(h.cards)}${h.isSplitHand?' (split)':''}${outcomeIcon?' '+outcomeIcon:''}</span>
+    </div>`;
+  }).join('');
+}
 function bjSeatsRowHTML(match, myId){
   if(!match.seatSlots || !match.seatSlots.includes(null)) return ''; // tavolo al completo: nulla da mostrare
   const mySlot = bjSeatOf(match, myId);
@@ -12705,31 +12759,46 @@ function bjPlayerHandsHTML(match, myId, forPlayerId, revealDealer){
     const canAct = isCurrent && isMe && match.phase==='playing';
     const canDouble = canAct && h.cards.length===2 && match.players.find(p=>p.id===myId).chips>=h.bet*2;
     const canSplit = canAct && !h.isSplitHand && bjCanSplit(h.cards) && match.players.find(p=>p.id===myId).chips>=h.bet*2;
-    const actionsHtml = canAct ? `<div class="row-btns" style="margin-top:6px;flex-wrap:wrap;">
+    const actionsHtml = canAct ? `<div class="row-btns" style="margin-top:4px;flex-wrap:wrap;">
         <button class="btn-secondary btn-small" onclick="bjPlayerAction('${match.id}','${myId}','hit')">Carta</button>
         <button class="btn-secondary btn-small" onclick="bjPlayerAction('${match.id}','${myId}','stand')">Stai</button>
         ${canDouble?`<button class="btn-secondary btn-small" onclick="bjPlayerAction('${match.id}','${myId}','double')">Raddoppia</button>`:''}
         ${canSplit?`<button class="btn-secondary btn-small" onclick="bjPlayerAction('${match.id}','${myId}','split')">Dividi</button>`:''}
       </div>` : '';
-    return `<div style="margin:6px 0;padding:8px;border-radius:8px;${isCurrent?'background:rgba(212,175,106,0.12);border:1px solid #D4AF6A;':''}">
+    return `<div style="margin:2px 0;padding:4px 6px;border-radius:8px;${isCurrent?'background:rgba(212,175,106,0.12);border:1px solid #D4AF6A;':''}">
       <div style="display:flex;gap:4px;flex-wrap:wrap;">${bjCardsHTML(h.cards,false)}</div>
-      <div class="hint" style="margin-top:4px;">${bjHandTotalLabel(h.cards)} · puntata ${h.doubled?h.bet*2:h.bet}${h.isSplitHand?' (split)':''} ${outcomeLabel}</div>
+      <div class="hint" style="margin-top:2px;">${bjHandTotalLabel(h.cards)} · puntata ${h.doubled?h.bet*2:h.bet}${h.isSplitHand?' (split)':''} ${outcomeLabel}</div>
       ${actionsHtml}
     </div>`;
   }).join('');
 }
 function bjResultPanel(match, myId){
-  const rows = match.turnOrder.map(id=>{
+  // Come nella mano in corso: il mio risultato resta ben leggibile, quello
+  // degli avversari diventa una riga compatta con l'esito netto in fiches,
+  // cosi' il riepilogo non sfora lo schermo con piu' giocatori al tavolo.
+  const myRow = myId ? (()=>{
+    const p = match.players.find(x=>x.id===myId);
+    const net = match.lastPayouts ? (match.lastPayouts[myId]||0) : 0;
+    const sign = net>0 ? '+' : '';
+    const color = net>0 ? '#7FBF9E' : (net<0 ? '#D98C8C' : 'var(--cream-dim)');
+    return `<div style="margin:8px 0;">
+      <div style="font-weight:600;">${esc(p.name)} <span style="color:${color};">${sign}${net}</span></div>
+      ${bjPlayerHandsHTML(match, myId, myId, true)}
+    </div>`;
+  })() : '';
+  const otherRows = match.turnOrder.filter(id=>id!==myId).map(id=>{
     const p = match.players.find(x=>x.id===id);
     const net = match.lastPayouts ? (match.lastPayouts[id]||0) : 0;
     const sign = net>0 ? '+' : '';
     const color = net>0 ? '#7FBF9E' : (net<0 ? '#D98C8C' : 'var(--cream-dim)');
-    return `<div style="margin:8px 0;">
-      <div style="font-weight:600;">${esc(p.name)}${p.isBot?' 🤖':''} <span style="color:${color};">${sign}${net}</span></div>
-      ${bjPlayerHandsHTML(match, myId, id, true)}
+    return `<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:8px;background:rgba(255,255,255,.04);">
+      <span style="font-size:12px;font-weight:600;white-space:nowrap;">${esc(p.name)}${p.isBot?' 🤖':''}</span>
+      <div style="display:flex;gap:1px;">${bjTinyCardsHTML(bjPlayerHands(match,id).flatMap(h=>h.cards))}</div>
+      <span style="margin-left:auto;font-size:12px;font-weight:700;color:${color};white-space:nowrap;">${sign}${net}</span>
     </div>`;
   }).join('');
-  return `${rows}
+  return `${myRow}
+    ${otherRows ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin:6px 0;">${otherRows}</div>` : ''}
     <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="bjNextRound('${match.id}')">Prossima mano</button>`;
 }
 function bjEndPanel(match){
@@ -12783,21 +12852,33 @@ function renderBlackjackMatch(match, claim){
   const turnBanner = match.phase==='playing'
     ? (match.currentPlayerId===myId || revealAll ? `<div class="turn-bar mine">► TOCCA A ${revealAll?esc(nameOf(match,match.currentPlayerId)):'TE'}</div>` : `<div class="turn-bar">Tocca a <b>${esc(nameOf(match,match.currentPlayerId))}</b> <button class="refresh-mini" onclick="forceResync()" title="Aggiorna">⟳</button></div>`)
     : (match.phase==='dealer' ? `<div class="turn-banner" style="text-align:center;">Il banco gioca…</div>` : '');
-  const playersHtml = match.turnOrder.map(id=>{
+  // La mia mano resta a piena grandezza (serve leggerla bene per decidere),
+  // le mani degli avversari diventano righe compatte affiancabili: con 3-4
+  // bot al tavolo, mostrarle tutte a piena grandezza in blocchi separati e'
+  // quello che manda la pagina fuori schermo, specialmente in orizzontale.
+  const myHandHtml = myId && bjPlayerHands(match,myId).length
+    ? `<div style="margin:2px 0;"><div style="font-weight:600;font-size:13px;">${esc(nameOf(match,myId))}</div>${bjPlayerHandsHTML(match, myId, myId, match.dealerRevealed)}</div>`
+    : '';
+  const othersHtml = match.turnOrder.filter(id=>id!==myId).map(id=>{
     if(!bjPlayerHands(match,id).length) return '';
-    return `<div style="margin:5px 0;"><div style="font-weight:600;">${esc(nameOf(match,id))}${match.players.find(p=>p.id===id).isBot?' 🤖':''}</div>${bjPlayerHandsHTML(match, myId, id, match.dealerRevealed)}</div>`;
+    return bjCompactHandsHTML(match, id);
   }).join('');
+  const dealerBlock = `<div style="margin:2px 0;">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+        <span style="font-weight:600;font-size:13px;">Banco</span>
+        <span class="hint" style="margin:0;">${dealerLabel}</span>
+      </div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:2px;">${bjCardsHTML(match.dealerHand, dealerHidden)}</div>
+    </div>`;
   return `<div class="card">
     <div class="toolbar"><span>Black Jack · ${modeLabel}</span>${tableExitButton(match, myId)}</div>
     ${scoreBar}
     ${turnBanner}
-    <div style="margin:6px 0;">
-      <div style="font-weight:600;">Banco</div>
-      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:2px;">${bjCardsHTML(match.dealerHand, dealerHidden)}</div>
-      <div class="hint" style="margin:2px 0 0;">${dealerLabel}</div>
-    </div>
-    ${match.phase!=='result' ? playersHtml : ''}
-    ${match.phase==='result' ? bjResultPanel(match, myId) : ''}
+    ${match.phase==='result' ? `${dealerBlock}${bjResultPanel(match, myId)}` : `
+    <div class="bj-table-layout">
+      <div class="bj-table-main">${dealerBlock}${myHandHtml}</div>
+      ${othersHtml ? `<div class="bj-table-others">${othersHtml}</div>` : ''}
+    </div>`}
   </div>`;
 }
 setInterval(()=>{
