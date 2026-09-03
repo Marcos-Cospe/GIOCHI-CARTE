@@ -299,6 +299,9 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
   svg.card-svg{width:60px;height:84px;}
   img.card-svg{width:60px;height:125px;}
 }
+@media (min-width: 1200px){
+  .wrap{max-width:1140px;}
+}
 @media (orientation: landscape) and (max-width: 900px) and (max-height: 500px){
   /* telefono girato: schermo basso, riduco i margini verticali per stare nello spazio */
   .card{padding:12px;margin-bottom:10px;}
@@ -443,7 +446,7 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
 <div class="wrap">
   <header class="top">
     <div class="brand">SALA GIOCHI</div>
-    <button id="sound-toggle-btn" onclick="toggleSound()" style="position:absolute;top:14px;right:14px;background:none;border:none;font-size:20px;cursor:pointer;padding:4px;" title="Attiva/disattiva suoni"></button>
+    <button id="sound-toggle-btn" onclick="toggleSound()" style="position:absolute;top:50%;transform:translateY(-50%);right:14px;background:none;border:none;font-size:20px;cursor:pointer;padding:4px;" title="Attiva/disattiva suoni"></button>
     <div class="tagline">Vuoi un gin tonic?</div>
   </header>
   <div id="sync-panel" class="card"></div>
