@@ -461,17 +461,7 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
 .card-fx-ghost.g1{ filter:blur(2px) drop-shadow(0 0 10px rgba(212,175,106,.45)); z-index:3; }
 .card-fx-ghost.g2{ filter:blur(4px); z-index:2; }
 .card-fx-ghost.g3{ filter:blur(7px); z-index:1; }
-/* Tavolo di distribuzione: vista dall'alto con tutti i giocatori, usata per
-   l'animazione di inizio mano al posto (o in aggiunta) del semplice lampo
-   cardFxDealBurst. Ogni carta vola dal mazzo centrale al proprio posto con
-   un @keyframes dedicato (mai una transition): un'animazione a fotogrammi
-   chiave interpola sempre dallo stato 0% dichiarato, anche se l'elemento
-   nasce nel DOM gia' con lo stile finale nell'HTML — a differenza di una
-   transition, che se non vede mai uno stato "prima" non anima affatto. */
-.deal-table-overlay{ position:fixed; inset:0; z-index:9999; pointer-events:none; display:flex; align-items:center; justify-content:center; }
-.deal-table-seat-name{ position:absolute; transform:translate(-50%,-50%); font-size:12px; color:#F1ECE1; text-shadow:0 1px 3px rgba(0,0,0,.7); white-space:nowrap; font-weight:600; }
-.deal-table-deck{ position:absolute; transform:translate(-50%,-50%); border-radius:4px; box-shadow:0 2px 8px rgba(0,0,0,.5); }
-.deal-table-card{ position:absolute; border-radius:3px; box-shadow:0 2px 5px rgba(0,0,0,.5); animation-timing-function: cubic-bezier(.2,.7,.3,1); animation-fill-mode: both; }
+
 </style>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#152420">
@@ -872,7 +862,9 @@ function showLoserPopup(){
   if(old) old.remove();
   const el = document.createElement('div');
   el.id = 'loser-popup';
-  el.innerHTML = `<img src="./loser.jpg" alt="">`;
+  // Se il file non c'e' (mai stato caricato in questa build), niente icona
+  // rotta: il popup si toglie da solo invece di restare li' a mostrarla.
+  el.innerHTML = `<img src="./loser.jpg" alt="" onerror="this.closest('#loser-popup') && this.closest('#loser-popup').remove()">`;
   el.onclick = () => el.remove();
   document.body.appendChild(el);
   setTimeout(()=>{ if(el.parentNode) el.remove(); }, 2200);
@@ -957,172 +949,32 @@ function cardFxDealBurst(handSize, backImgSrc){
 // stesso elemento, senza bisogno di ricostruire a mano la stringa transform.
 // Tavolo ovale di distribuzione/lancio: un solo overlay alla volta. Se ne
 // parte uno nuovo mentre il precedente sta ancora finendo di sparire (es.
-// un bot gioca subito dopo un altro), tolgo di scatto quello vecchio invece
-// di lasciare che due si sovrappongano sullo schermo.
-let activeSeatOverlayEl = null;
-function killActiveSeatOverlay(){
-  if(activeSeatOverlayEl){
-    gsap.killTweensOf(activeSeatOverlayEl);
-    activeSeatOverlayEl.remove();
-    activeSeatOverlayEl = null;
-  }
-}
+// L'animazione a tavolo ovale (nomi dei giocatori disposti attorno a un
+// mazzo centrale, carte che volano ad ognuno) creava ripetutamente difetti
+// visivi difficili da eliminare del tutto — nomi ed etichette che finivano
+// tagliati dalle carte disegnate sopra, secondo il dispositivo e il numero
+// di giocatori. Invece di rincorrere l'ennesimo caso limite, la distribuzione
+// resta segnalata solo dal ritmo dei click delle carte (nessun overlay
+// grafico da posizionare): meno scenografico ma sempre corretto.
 function cardFxDealTable(names, myIndex, cardsPerPlayer, opts){
   opts = opts || {};
   if(!Array.isArray(names) || names.length<1) return;
-  killActiveSeatOverlay();
   const n = names.length;
   cardsPerPlayer = Math.max(1, cardsPerPlayer||1);
-  const start = ((myIndex||0) % n + n) % n;
-  const ordered = names.map((_,i)=> names[(start+i)%n]);
-
-  const overlay = document.createElement('div');
-  overlay.className = 'deal-table-overlay';
-  activeSeatOverlayEl = overlay;
-  const vw = Math.min(window.innerWidth || 360, 480);
-  const W = Math.min(vw-24, 360);
-  const H = Math.round(W*0.92);
-  const cx = W/2, cy = H/2;
-  const rx = W*0.40, ry = H*0.38;
-  const cardW = 30, cardH = 42;
-  const backSrc = CARD_IMG['back'] || '';
-
-  function seatPos(i){
-    const angle = (i*(360/n)) * Math.PI/180;
-    return { x: cx + rx*Math.sin(angle), y: cy + ry*Math.cos(angle) };
+  const totalCards = n*cardsPerPlayer;
+  const clickCount = Math.min(totalCards, 14); // oltre un tot i click ravvicinati si accavallano senza aggiungere nulla
+  const clickGap = 70;
+  for(let i=0;i<clickCount;i++){
+    setTimeout(sndCardPlay, i*clickGap);
   }
-
-  let html = `<div style="position:relative;width:${W}px;height:${H}px;background:#16261F;box-shadow:0 8px 30px rgba(0,0,0,.5);border-radius:16px;border:1px solid rgba(212,175,106,0.3);">`;
-  html += `<img class="deal-table-deck" src="${backSrc}" style="left:${cx}px;top:${cy}px;width:${cardW}px;height:${cardH}px;" alt="">`;
-  ordered.forEach((name,i)=>{
-    const pos = seatPos(i);
-    const labelY = pos.y + (pos.y>=cy ? 24 : -24);
-    html += `<div class="deal-table-seat-name" style="left:${pos.x}px;top:${labelY}px;">${esc(name)}${i===0?' (tu)':''}</div>`;
-  });
-  html += `</div>`;
-  overlay.innerHTML = html;
-  document.body.appendChild(overlay);
-  const stage = overlay.firstElementChild;
-
-  // Distribuzione una carta alla volta, in sequenza netta (non piu' a ronde
-  // sovrapposte pensate per la velocita'): ogni carta ha il proprio istante
-  // di partenza dedicato, girando tra i giocatori come farebbe un vero
-  // mazziere. Un piccolo overlap tra il volo di una carta e la partenza
-  // della successiva resta naturale, ma ogni carta e' ben visibile prima
-  // che parta quella dopo.
-  const cardInterval = 0.24; // secondi tra la partenza di una carta e la successiva
-  const flightDuration = 0.40;
-
-  const tl = gsap.timeline({
-    onComplete: ()=>{
-      gsap.to(overlay, {
-        opacity: 0, duration: 0.22, ease: 'power1.in',
-        onComplete: ()=>{ overlay.remove(); if(activeSeatOverlayEl===overlay) activeSeatOverlayEl=null; if(typeof opts.onDone==='function') opts.onDone(); }
-      });
-    }
-  });
-
-  for(let round=0; round<cardsPerPlayer; round++){
-    for(let p=0; p<n; p++){
-      const atTime = (round*n + p) * cardInterval;
-      const pos = seatPos(p);
-      // La pila cresce SEMPRE verso il centro del tavolo, mai verso il bordo
-      // esterno dove sta il nome: una diagonale fissa, per chi siede in
-      // basso, finirebbe dritta sul proprio nome (bug gia' incontrato in una
-      // versione precedente) — dirigendola verso il centro funziona per
-      // qualunque posizione attorno al tavolo, senza calcoli ad hoc per lato.
-      const dx = cx-pos.x, dy = cy-pos.y;
-      const dist = Math.sqrt(dx*dx+dy*dy) || 1;
-      const stackMag = Math.min(round, 8) * 1.8;
-      const ex = pos.x + (dx/dist)*stackMag;
-      const ey = pos.y + (dy/dist)*stackMag;
-      const rot0 = Math.random()*40-20;
-
-      const card = document.createElement('div');
-      card.className = 'deal-table-card';
-      card.style.width = cardW+'px';
-      card.style.height = cardH+'px';
-      card.style.backgroundImage = `url("${backSrc}")`;
-      card.style.backgroundSize = 'cover';
-      card.style.zIndex = String(10+round);
-      stage.appendChild(card);
-
-      gsap.set(card, { left:cx, top:cy, opacity:0, scale:0.7, rotate:rot0, xPercent:-50, yPercent:-50 });
-      tl.to(card, {
-        left: ex, top: ey, opacity: 1, scale: 1, rotate: 0,
-        duration: flightDuration, ease: 'back.out(1.5)'
-      }, atTime);
-    }
-  }
-
-  return overlay;
+  const totalDuration = Math.max(350, clickCount*clickGap + 150);
+  setTimeout(()=>{ if(typeof opts.onDone==='function') opts.onDone(); }, totalDuration);
 }
-// Stessa identica messa in scena della distribuzione (tavolo ovale con i
-// giocatori attorno), ma per il verso opposto: una sola carta che vola dal
-// posto di chi la gioca verso il centro, mostrata scoperta cosi' si vede
-// subito qual e' — usata quando un giocatore gioca/scarta una carta.
+// Stesso principio del lancio di una singola carta quando un giocatore
+// gioca/scarta: solo il suono, senza l'overlay a tavolo ovale (vedi sopra).
 async function cardFxThrowFromSeat(match, playerIds, throwerId, imgSrc){
   if(!Array.isArray(playerIds) || playerIds.length<1 || !throwerId) return;
   sndCardPlay();
-  // Questa funzione parte senza essere attesa (fire-and-forget) da chi gioca
-  // la carta, e getEffectiveClaim() e' asincrona: se nel frattempo la
-  // schermata e' gia' passata a un'altra (es. il riepilogo della presa
-  // appena conclusa), l'animazione arriverebbe in ritardo sopra contenuto
-  // che non c'entra piu' niente. La guardia sul numero di generazione (la
-  // stessa usata da render() per evitare scritture superate) evita di
-  // mostrarla in quel caso, invece di lasciarla comparire fuori contesto.
-  const genAtCall = renderGen;
-  const claim = await getEffectiveClaim(match);
-  if(renderGen!==genAtCall) return;
-  killActiveSeatOverlay();
-  const myId = (claim && claim.type==='seat' && playerIds.includes(claim.playerId)) ? claim.playerId : playerIds[0];
-  const n = playerIds.length;
-  const myIdx = Math.max(0, playerIds.indexOf(myId));
-  const throwerIdx = Math.max(0, playerIds.indexOf(throwerId));
-  const orderedThrowerPos = ((throwerIdx - myIdx) % n + n) % n;
-
-  const overlay = document.createElement('div');
-  overlay.className = 'deal-table-overlay';
-  activeSeatOverlayEl = overlay;
-  const vw = Math.min(window.innerWidth || 360, 480);
-  const W = Math.min(vw-24, 360);
-  const H = Math.round(W*0.92);
-  const cx = W/2, cy = H/2;
-  const rx = W*0.40, ry = H*0.38;
-  const cardW = 30, cardH = 42;
-
-  function seatPos(i){
-    const angle = (i*(360/n)) * Math.PI/180;
-    return { x: cx + rx*Math.sin(angle), y: cy + ry*Math.cos(angle) };
-  }
-
-  let html = `<div style="position:relative;width:${W}px;height:${H}px;background:#16261F;box-shadow:0 8px 30px rgba(0,0,0,.5);border-radius:16px;border:1px solid rgba(212,175,106,0.3);">`;
-  for(let i=0;i<n;i++){
-    const id = playerIds[(myIdx+i)%n];
-    const pos = seatPos(i);
-    const labelY = pos.y + (pos.y>=cy ? 24 : -24);
-    html += `<div class="deal-table-seat-name" style="left:${pos.x}px;top:${labelY}px;">${esc(nameOf(match,id))}${i===0?' (tu)':''}</div>`;
-  }
-  html += `</div>`;
-  overlay.innerHTML = html;
-  document.body.appendChild(overlay);
-  const stage = overlay.firstElementChild;
-
-  const fromPos = seatPos(orderedThrowerPos);
-  const card = document.createElement('div');
-  card.className = 'deal-table-card';
-  card.style.width = cardW+'px';
-  card.style.height = cardH+'px';
-  card.style.backgroundImage = `url("${imgSrc}")`;
-  card.style.backgroundSize = 'cover';
-  stage.appendChild(card);
-
-  gsap.set(card, { left:fromPos.x, top:fromPos.y, opacity:0, scale:0.7, rotate:Math.random()*30-15, xPercent:-50, yPercent:-50 });
-  gsap.timeline({
-    onComplete: ()=>{
-      gsap.to(overlay, { opacity:0, duration:0.22, ease:'power1.in', onComplete:()=>{ overlay.remove(); if(activeSeatOverlayEl===overlay) activeSeatOverlayEl=null; } });
-    }
-  }).to(card, { left:cx, top:cy, opacity:1, scale:1, rotate:0, duration:0.40, ease:'back.out(1.5)' });
 }
 function hudAvatar(name){
   const initial = (name||'?').trim().charAt(0).toUpperCase() || '?';
