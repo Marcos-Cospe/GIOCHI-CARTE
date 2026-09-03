@@ -279,6 +279,7 @@ body.force-share.in-match #sync-panel{display:block !important;}
 .predict-btn:active{transform:scale(.92);}
 
 /* Modalita compatta durante la partita: meno intestazione, niente scroll inutile */
+body.in-match{padding-bottom:0;}
 body.in-match header.top{padding:8px 4px 2px;}
 body.in-match .brand{font-size:22px;}
 body.in-match .tagline,
@@ -309,6 +310,17 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
   .brand{font-size:28px;}
   .tagline{margin-top:2px;}
   .suit-ladder{margin-top:8px;}
+  /* Giochi da tavolo (Dama, Scacchi, Battaglia Navale): in orizzontale la
+     larghezza avanza mentre l'altezza scarseggia, quindi affianco la
+     scacchiera/griglia ai banner invece di impilarli, cosi' non serve
+     rimpicciolire il tabellone fino a renderlo illeggibile. */
+  .boardgame-layout{display:flex;flex-direction:row;align-items:flex-start;gap:12px;}
+  .boardgame-board-col{flex:0 0 auto;}
+  .boardgame-info-col{flex:1;min-width:0;}
+  .boardgame-info-col .toolbar{margin-bottom:6px;}
+  .boardgame-info-col h3{margin-top:4px;}
+  .bs-grids-row{display:flex;flex-direction:row;gap:10px;}
+  .bs-grids-row > div{flex:1;min-width:0;}
 }
 .risiko-rotate-hint{ display:none; }
 @media (orientation: landscape){
@@ -317,7 +329,7 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
   }
   body.risiko-match .risiko-map-col{ flex:1.5; min-width:0; }
   body.risiko-match .risiko-panel-col{
-    flex:1; min-width:0; max-height:calc(100vh - 120px); overflow-y:auto;
+    flex:1; min-width:0; max-height:calc(100vh - 200px); overflow-y:auto;
   }
   /* pulsanti piu' compatti nel pannello laterale, cosi' ce ne stanno di piu' senza scorrere */
   body.risiko-match .risiko-panel-col .btn-primary,
@@ -349,6 +361,55 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
   /* il contenuto sotto resta nel DOM (cosi' bot/logica continuano a girare
      regolarmente) ma nascosto alla vista finche' il telefono non viene ruotato */
   body.risiko-match #app, body.risiko-match #chat-persistent{ visibility:hidden; }
+}
+
+/* ---------- Adattamento senza scroll: schermi bassi (telefono orizzontale
+   o piccoli in verticale) durante una partita. Comprime banner/margini in
+   proporzione allo spazio verticale reale invece di un solo breakpoint fisso,
+   cosi' il tavolo di gioco e i controlli restano sempre visibili. ---------- */
+@media (max-height: 760px){
+  body.in-match .card{padding:clamp(8px, 3vh, 18px);margin-bottom:clamp(6px, 1.6vh, 16px);}
+  body.in-match .card h2{margin:0 0 clamp(6px, 1.6vh, 14px);font-size:clamp(15px, 3.4vh, 19px);}
+  body.in-match .toolbar{padding:clamp(3px, 1vh, 6px) 8px clamp(3px, 1vh, 6px) 6px;margin-bottom:clamp(5px, 1.4vh, 12px);}
+  body.in-match .turn-bar, body.in-match .turn-banner, body.in-match .waiting-banner, body.in-match .forehead-note{
+    padding:clamp(5px, 1.4vh, 10px) clamp(8px, 1.8vw, 12px);margin-bottom:clamp(5px, 1.4vh, 12px);
+    font-size:clamp(12px, 2.6vh, 14px);
+  }
+  body.in-match .hint{font-size:clamp(11px, 2.2vh, 13px);margin:-2px 0 clamp(6px, 1.6vh, 14px);}
+  body.in-match h3{margin:clamp(6px, 1.6vh, 14px) 0 clamp(3px, 1vh, 4px) !important;font-size:clamp(12.5px, 2.6vh, 15px);}
+  body.in-match .row-pills, body.in-match .score-bar{margin:clamp(4px, 1.2vh, 10px) 0;}
+  body.in-match .boardgame-info-col button,
+  body.in-match .boardgame-board-col button{padding:6px 8px;font-size:12.5px;}
+  body.in-match .boardgame-info-col > .hint:first-child{margin:0 0 4px;}
+}
+@media (max-height: 460px){
+  body.in-match header.top{padding:4px 4px 2px;}
+  body.in-match .brand{font-size:18px;}
+  /* Riepilogo statistiche del dispositivo (Roulette/Black Jack): utile ma non
+     essenziale per giocare il turno corrente, si nasconde quando lo spazio
+     verticale non basta per mostrarlo senza scroll. */
+  body.in-match .device-stats-summary{display:none;}
+  body.in-match .bj-seats-hint{display:none;}
+  /* Selettore posto al tavolo (Black Jack): comodo ma non indispensabile per
+     giocare (i bot occupano comunque i posti liberi), si nasconde quando lo
+     spazio verticale e' troppo poco per mostrarlo senza scroll. */
+  body.in-match .bj-seats-row{display:none;}
+  body.in-match button{padding:9px 12px;}
+  body.in-match .btn-small{padding:6px 9px;}
+}
+/* Roulette: la griglia dei numeri 1-36 piu' le puntate esterne sono
+   intrinsecamente piu' alte di qualunque schermo di telefono restando
+   leggibili; il resto del tavolo (fiches, ruota, pulsante "Pronto, gira!")
+   deve pero' restare sempre visibile senza scorrere, quindi solo questo
+   pannello centrale scorre al suo interno, con un'altezza legata allo
+   spazio verticale realmente disponibile. */
+.roulette-bet-scroll{
+  /* Il resto del tavolo (fiches, puntate correnti, pulsanti "Azzera"/"Pronto")
+     occupa uno spazio pressoche' fisso sopra e sotto questo pannello: gli
+     lascio esattamente lo spazio verticale che avanza, cosi' la pagina
+     intera resta dentro lo schermo qualunque sia l'altezza disponibile. */
+  max-height:max(60px, calc(100vh - 470px)); overflow-y:auto; -webkit-overflow-scrolling:touch;
+  margin:6px 0; padding-right:4px;
 }
 /* ===== video di apertura (mostrato ad ogni caricamento dell'app) ===== */
 #intro-overlay{
@@ -7290,7 +7351,7 @@ async function recordDeviceRecharge(game){
 function deviceStatsSummaryHTML(stats){
   const net = stats.totalWon - stats.totalLost;
   const netColor = net>0 ? '#7FBF9E' : (net<0 ? '#D98C8C' : 'var(--cream-dim)');
-  return `<div class="hint" style="margin-top:8px;line-height:1.6;">
+  return `<div class="hint device-stats-summary" style="margin-top:8px;line-height:1.6;">
     Su questo dispositivo: <b style="color:${netColor};">${net>0?'+':''}${net}</b> nel complesso
     (vinto ${stats.totalWon} · perso ${stats.totalLost}) · ricaricato ${stats.recharges} volt${stats.recharges===1?'a':'e'}
   </div>`;
@@ -8222,7 +8283,8 @@ function risikoMapSVG(territoryStates, players, opts){
     </g>`;
   });
 
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;background:#16261F;border-radius:10px;display:block;">
+  const mapVh = opts.maxHeightVh || 58;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:min(100%, calc(${mapVh}vh * ${(W/H).toFixed(4)}));height:auto;background:#16261F;border-radius:10px;display:block;margin:0 auto;">
     ${worldBg}
     ${bordersSvg}
     ${nodesSvg}
@@ -9082,7 +9144,7 @@ function renderRisikoMatch(match, claim){
   }
 
   const phase = match.phase;
-  const mapOpts = { clickable: isMyTurn, clickAction: `risikoMapClick.bind(null,'${match.id}','${myId}','${phase}')`, selectedId: risikoSelFrom, highlightIds: risikoSelTo?[risikoSelTo]:[] };
+  const mapOpts = { clickable: isMyTurn, clickAction: `risikoMapClick.bind(null,'${match.id}','${myId}','${phase}')`, selectedId: risikoSelFrom, highlightIds: risikoSelTo?[risikoSelTo]:[], maxHeightVh: 44 };
   let panel;
   if(phase==='placement') panel = risikoPlacementPanel(match, myId, isMyTurn);
   else if(phase==='reinforce') panel = risikoReinforcePanel(match, myId, isMyTurn);
@@ -11491,7 +11553,7 @@ function f4BoardSVG(match, myId, canInteract){
     }
   }
   return `
-    <svg viewBox="0 0 ${boardW} ${boardH}" width="100%" style="max-width:380px;display:block;margin:0 auto;">
+    <svg viewBox="0 0 ${boardW} ${boardH}" width="100%" style="max-width:min(380px, 88vw, 34vh);display:block;margin:0 auto;">
       <rect x="0" y="${topOffset}" width="${boardW}" height="${boardH-topOffset}" rx="14" fill="#1E3A8A" stroke="#16265A" stroke-width="2"/>
       ${cells}
       ${clickAreas}
@@ -11617,7 +11679,7 @@ function bsGridHTML(board, opts){
   const totalW = colLabelW + BS_SIZE*(cellSize+gap);
   const totalH = cellSize+gap + BS_SIZE*(cellSize+gap);
 
-  let html = `<div style="position:relative;max-width:${totalW}px;margin:0 auto;">`;
+  let html = `<div style="position:relative;max-width:min(${totalW}px, 90vw, ${opts.vhBudget||32}vh);margin:0 auto;">`;
   html += `<div style="display:grid;grid-template-columns:${colLabelW}px repeat(${BS_SIZE},1fr);grid-template-rows:${cellSize}px repeat(${BS_SIZE},1fr);gap:${gap}px;">`;
   html += `<div></div>`;
   for(let c=1;c<=BS_SIZE;c++) html += `<div style="text-align:center;font-size:9px;color:#8AA396;">${c}</div>`;
@@ -11693,14 +11755,14 @@ function renderBattleshipPlacement(match, myId, revealAll){
   const placed = match.placements[myId] || {};
   const board = match.boards[myId];
   const tutteRronte = BS_SHIPS.every(s=>placed[s.id]);
-  const shipRows = BS_SHIPS.map(s=>{
+  const shipRows = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:4px 0;">` + BS_SHIPS.map(s=>{
     const isPlaced = !!placed[s.id];
     const isSelected = bsSelectedShip===s.id;
-    return `<div class="row-btns" style="margin:4px 0;">
+    return `<div style="display:flex;gap:4px;">
       <button class="btn-secondary btn-small ${isSelected?'mode-active':''}" style="flex:1;${isPlaced?'opacity:0.55;':''}" onclick="bsSelectedShip='${s.id}'; render(true)">${esc(s.name)} (${s.size}) ${isPlaced?'✓':''}</button>
-      ${isPlaced?`<button class="btn-danger btn-small" onclick="bsRemoveShip('${match.id}','${myId}','${s.id}')">Rimuovi</button>`:''}
+      ${isPlaced?`<button class="btn-danger btn-small" title="Rimuovi" onclick="bsRemoveShip('${match.id}','${myId}','${s.id}')">✕</button>`:''}
     </div>`;
-  }).join('');
+  }).join('') + `</div>`;
 
   // anteprima della nave selezionata nella posizione corrente del cursore: se la
   // nave era gia' piazzata, la escludo dal controllo di validita' (posso sempre
@@ -11717,11 +11779,20 @@ function renderBattleshipPlacement(match, myId, revealAll){
     }
   }
 
+  // In orizzontale l'altezza disponibile e' poca: calcolo la dimensione delle
+  // celle direttamente in pixel (invece di affidarmi a un max-width via CSS)
+  // perche' la griglia usa una riga di intestazione a altezza fissa insieme a
+  // righe "1fr" — un max-width applicato dopo il fatto non le fa scalare in
+  // modo affidabile, mentre partire da un cellSize piu' piccolo si' .
+  const placementIsLandscape = window.innerWidth > window.innerHeight;
+  const placementCellSize = placementIsLandscape
+    ? (window.innerHeight < 420 ? 16 : 20)
+    : (window.innerHeight < 700 ? 15 : 26);
   const grid = bsGridHTML(board, {
-    revealShips: true, cellSize: 30,
+    revealShips: true, cellSize: placementCellSize,
     clickable: !match.ready[myId] && !!bsSelectedShip,
     clickAction: 'bsTryPlaceSelected',
-    previewCells, previewValid
+    previewCells, previewValid, vhBudget: 40
   });
 
   const arrowsBlock = (!match.ready[myId] && bsSelectedShip) ? `
@@ -11736,20 +11807,28 @@ function renderBattleshipPlacement(match, myId, revealAll){
       ${previewCells&&!previewValid ? '<p class="hint" style="color:#E07A7A;margin:2px 0;">Posizione non valida qui.</p>' : ''}
     </div>` : '';
 
+  const readyButtons = !match.ready[myId] ? `<div class="row-btns" style="margin-top:10px;">
+      <button class="btn-secondary" style="flex:1;" onclick="bsAutoPlace('${match.id}','${myId}')">Piazza casualmente</button>
+      <button class="btn-primary" style="flex:1;" ${tutteRronte?'':'disabled'} onclick="bsConfirmReady('${match.id}','${myId}')">Pronto!</button>
+    </div>` : '';
+
   return `<div class="card">
     <div class="toolbar"><span>Battaglia Navale · posiziona la flotta</span><button class="btn-danger btn-small" onclick="abandonMatch()">Abbandona</button></div>
     ${match.ready[myId] ? `<div class="turn-banner">Flotta pronta! Aspetta l'avversario…</div>` : `
-    <p class="hint">Scegli una nave, poi usa le frecce (o tocca la griglia) per posizionarla, quindi conferma.</p>
-    ${shipRows}
-    <div class="row-btns" style="margin:8px 0;">
-      <button class="btn-secondary" onclick="bsSelectedHorizontal=!bsSelectedHorizontal; render(true)">Orientamento: ${bsSelectedHorizontal?'Orizzontale →':'Verticale ↓'}</button>
+    <div class="boardgame-layout">
+      <div class="boardgame-info-col">
+        <p class="hint">Scegli una nave, poi usa le frecce (o tocca la griglia) per posizionarla, quindi conferma.</p>
+        ${shipRows}
+        <div class="row-btns" style="margin:4px 0;">
+          <button class="btn-secondary" onclick="bsSelectedHorizontal=!bsSelectedHorizontal; render(true)">Orientamento: ${bsSelectedHorizontal?'Orizzontale →':'Verticale ↓'}</button>
+        </div>
+      </div>
+      <div class="boardgame-board-col">
+        ${grid}
+        ${arrowsBlock}
+        ${readyButtons}
+      </div>
     </div>`}
-    ${grid}
-    ${arrowsBlock}
-    ${!match.ready[myId] ? `<div class="row-btns" style="margin-top:10px;">
-      <button class="btn-secondary" style="flex:1;" onclick="bsAutoPlace('${match.id}','${myId}')">Piazza casualmente</button>
-      <button class="btn-primary" style="flex:1;" ${tutteRronte?'':'disabled'} onclick="bsConfirmReady('${match.id}','${myId}')">Pronto!</button>
-    </div>` : ''}
   </div>`;
 }
 
@@ -11886,8 +11965,19 @@ function renderBattleshipMatch(match, claim){
       : 'Tocca a <b>'+esc(nameOf(match,match.currentId))+'</b> — aspetta <button class="refresh-mini" onclick="forceResync()" title="Aggiorna">⟳</button>'
   }</div>`;
   const canAttack = isMyTurn && !revealAll && !!myId;
-  const attackGrid = bsGridHTML(match.boards[opponentId], { revealShips:false, cellSize:27, clickable:canAttack, clickAction:`bsShootAt.bind(null,'${match.id}','${myId}')`, idPrefix:'bs-atk' });
-  const myGrid = bsGridHTML(match.boards[myId||match.turnOrder[0]], { revealShips:true, cellSize:24, idPrefix:'bs-def' });
+  // In orizzontale le due griglie stanno affiancate (larghezza abbondante),
+  // quindi possono restare piu' grandi; in verticale sono impilate e devono
+  // condividere l'altezza disponibile, percio' un budget verticale minore.
+  const isLandscape = window.innerWidth > window.innerHeight;
+  const shortHeight = window.innerHeight < 420;
+  // Il cellSize guida direttamente tutte le misure interne della griglia
+  // (etichette, overlay dei colpi): partire da un valore piu' piccolo quando
+  // lo spazio scarseggia scala tutto in modo coerente, a differenza di un
+  // max-width imposto dopo via CSS sulla riga di intestazione a altezza fissa.
+  const atkCellSize = isLandscape ? (shortHeight ? 15 : 19) : (shortHeight ? 16 : 22);
+  const defCellSize = isLandscape ? (shortHeight ? 13 : 17) : (shortHeight ? 14 : 19);
+  const attackGrid = bsGridHTML(match.boards[opponentId], { revealShips:false, cellSize:atkCellSize, clickable:canAttack, clickAction:`bsShootAt.bind(null,'${match.id}','${myId}')`, idPrefix:'bs-atk', vhBudget:40 });
+  const myGrid = bsGridHTML(match.boards[myId||match.turnOrder[0]], { revealShips:true, cellSize:defCellSize, idPrefix:'bs-def', vhBudget:40 });
   const lastShotHtml = match.lastShot ? `<div class="turn-banner">${bsLastShotText(match)}</div>` : '';
 
   // recap della flotta avversaria: quali navi sono gia' state affondate, cosi'
@@ -11904,12 +11994,18 @@ function renderBattleshipMatch(match, claim){
     <div class="toolbar"><span>Battaglia Navale · ${revealAll?'tutti visibili':esc(nameOf(match,myId))}</span><button class="btn-danger btn-small" onclick="abandonMatch()">Abbandona</button></div>
     ${turnBanner}
     ${lastShotHtml}
-    <h3 style="margin:10px 0 4px;">I tuoi attacchi</h3>
-    ${attackGrid}
-    <h3 style="margin:14px 0 4px;">Flotta avversaria (${sunkCount}/${BS_SHIPS.length} affondate)</h3>
+    <h3 style="margin:10px 0 4px;">Flotta avversaria (${sunkCount}/${BS_SHIPS.length} affondate)</h3>
     <div style="display:flex;flex-wrap:wrap;gap:6px;">${sunkRecap}</div>
-    <h3 style="margin:14px 0 4px;">La tua flotta</h3>
-    ${myGrid}
+    <div class="bs-grids-row">
+      <div>
+        <h3 style="margin:10px 0 4px;">I tuoi attacchi</h3>
+        ${attackGrid}
+      </div>
+      <div>
+        <h3 style="margin:10px 0 4px;">La tua flotta</h3>
+        ${myGrid}
+      </div>
+    </div>
   </div>`;
 }
 
@@ -11982,7 +12078,7 @@ function damaBoardHTML(match, myId, revealAll){
   const selectable = canPlay ? damaSelectableSquares(match, player.color) : new Set();
   const destinations = (canPlay && damaSelected) ? damaLegalOptionsFor(match, player.color, damaSelected.r, damaSelected.c).map(o=>{ const last=o.path[o.path.length-1]; return last.r+'_'+last.c; }) : [];
   const cellSize = 34;
-  let html = `<div style="display:grid;grid-template-columns:repeat(8,1fr);gap:1px;max-width:${8*(cellSize+1)}px;margin:0 auto;background:#0A1410;padding:4px;border-radius:8px;">`;
+  let html = `<div style="display:grid;grid-template-columns:repeat(8,1fr);gap:1px;max-width:min(${8*(cellSize+1)}px, 90vw, 40vh);margin:0 auto;background:#0A1410;padding:4px;border-radius:8px;">`;
   for(let r=0;r<8;r++){
     for(let c=0;c<8;c++){
       const dark = (r+c)%2===1;
@@ -11999,7 +12095,7 @@ function damaBoardHTML(match, myId, revealAll){
         const fill = piece.color==='W' ? '#F1ECE1' : '#241812';
         const ring = piece.color==='W' ? '#B8A88C' : '#4A3826';
         const glow = (isSelectable && !isSelected) ? 'box-shadow:0 0 0 3px #D4AF6A, 0 2px 3px rgba(0,0,0,0.4);' : 'box-shadow:0 2px 3px rgba(0,0,0,0.4);';
-        pieceHtml = `<div style="width:78%;height:78%;border-radius:50%;background:${fill};border:2.5px solid ${ring};display:flex;align-items:center;justify-content:center;${glow}">${piece.king?`<span style="font-size:${cellSize*0.42}px;">♛</span>`:''}</div>`;
+        pieceHtml = `<div style="width:78%;height:78%;border-radius:50%;background:${fill};border:2.5px solid ${ring};display:flex;align-items:center;justify-content:center;${glow}">${piece.king?`<span style="font-size:min(${cellSize*0.42}px, 4.725vw, 2.1vh);">♛</span>`:''}</div>`;
       }
       html += `<div ${clickable?`onclick="damaCellClick('${match.id}','${myId}',${r},${c})"`:''} style="width:100%;aspect-ratio:1;background:${bg};display:flex;align-items:center;justify-content:center;${clickable?'cursor:pointer;':''}">${pieceHtml}</div>`;
     }
@@ -12053,10 +12149,10 @@ function renderDamaMatch(match, claim){
 
   return `<div class="card">
     <div class="toolbar"><span>Dama · ${revealAll?'tutti visibili':esc(nameOf(match,myId))}</span><button class="btn-danger btn-small" onclick="abandonMatch()">Abbandona</button></div>
-    ${scoreBar}
-    ${turnBanner}
-    ${lastMoveHtml}
-    ${damaBoardHTML(match, myId, revealAll)}
+    <div class="boardgame-layout">
+      <div class="boardgame-info-col">${scoreBar}${turnBanner}${lastMoveHtml}</div>
+      <div class="boardgame-board-col">${damaBoardHTML(match, myId, revealAll)}</div>
+    </div>
     <p class="hint" style="margin-top:10px;">Tocca una pedina evidenziata, poi la casella di arrivo. La cattura è obbligatoria quando disponibile.</p>
   </div>`;
 }
@@ -12111,7 +12207,7 @@ function chessBoardHTML(match, myId, revealAll){
   const destOptions = (canPlay && chessSelected) ? chessLegalOptionsFor(match, player.color, chessSelected.r, chessSelected.c) : [];
   const destinations = destOptions.map(o=>o.to.r+'_'+o.to.c);
   const cellSize = 34;
-  let html = `<div style="display:grid;grid-template-columns:repeat(8,1fr);gap:1px;max-width:${8*(cellSize+1)}px;margin:0 auto;background:#0A1410;padding:4px;border-radius:8px;">`;
+  let html = `<div style="display:grid;grid-template-columns:repeat(8,1fr);gap:1px;max-width:min(${8*(cellSize+1)}px, 90vw, 40vh);margin:0 auto;background:#0A1410;padding:4px;border-radius:8px;">`;
   for(let r=0;r<8;r++){
     for(let c=0;c<8;c++){
       const light = (r+c)%2===0;
@@ -12128,7 +12224,7 @@ function chessBoardHTML(match, myId, revealAll){
       let pieceHtml = '';
       if(piece){
         const glow = (isSelectable && !isSelected) ? 'text-shadow:0 0 6px #D4AF6A, 0 0 6px #D4AF6A;' : '';
-        pieceHtml = `<span style="font-size:${cellSize*0.75}px;line-height:1;${glow}filter:drop-shadow(0 1px 1px rgba(0,0,0,0.5));">${CHESS_SYMBOLS[piece.color][piece.type]}</span>`;
+        pieceHtml = `<span style="font-size:min(${cellSize*0.75}px, 8.4375vw, 3.75vh);line-height:1;${glow}filter:drop-shadow(0 1px 1px rgba(0,0,0,0.5));">${CHESS_SYMBOLS[piece.color][piece.type]}</span>`;
       }
       html += `<div ${clickable?`onclick="chessCellClick('${match.id}','${myId}',${r},${c})"`:''} style="width:100%;aspect-ratio:1;background:${bg};display:flex;align-items:center;justify-content:center;${clickable?'cursor:pointer;':''}">${pieceHtml}</div>`;
     }
@@ -12193,10 +12289,10 @@ function renderChessMatch(match, claim){
 
   return `<div class="card">
     <div class="toolbar"><span>Scacchi · ${revealAll?'tutti visibili':esc(nameOf(match,myId))}</span><button class="btn-danger btn-small" onclick="abandonMatch()">Abbandona</button></div>
-    ${scoreBar}
-    ${turnBanner}
-    ${lastMoveHtml}
-    ${chessBoardHTML(match, myId, revealAll)}
+    <div class="boardgame-layout">
+      <div class="boardgame-info-col">${scoreBar}${turnBanner}${lastMoveHtml}</div>
+      <div class="boardgame-board-col">${chessBoardHTML(match, myId, revealAll)}</div>
+    </div>
     ${chessPromotionPanel(match, myId)}
     <p class="hint" style="margin-top:10px;">Tocca un pezzo evidenziato, poi la casella di arrivo.</p>
   </div>`;
@@ -12369,18 +12465,18 @@ function rouletteBettingBoard(match, myId){
     return `<span style="position:absolute;top:-6px;right:-6px;background:#D4AF6A;color:#1B1410;border:1.5px solid #1B1410;border-radius:50%;min-width:20px;height:20px;padding:0 3px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.5);z-index:2;">${somma}</span>`;
   }
   // griglia numeri 1-36 in 3 colonne x 12 righe (ordine tabellone reale: colonna 1 = 1,4,7...34 ecc)
-  let gridHtml = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;max-width:280px;margin:8px auto;">`;
+  let gridHtml = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;max-width:min(280px, 82vw);margin:8px auto;">`;
   for(let row=0; row<12; row++){
     for(let col=0; col<3; col++){
       const n = row*3 + col + 1;
       gridHtml += `<div style="position:relative;">
-        <div onclick="roulettePlaceBet('${match.id}','${myId}','straight',${n},rouletteChipValue)" style="${rouletteNumberCellStyle(n)}aspect-ratio:1.6;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:13px;cursor:pointer;border:1px solid #0A1410;">${n}</div>
+        <div onclick="roulettePlaceBet('${match.id}','${myId}','straight',${n},rouletteChipValue)" style="${rouletteNumberCellStyle(n)}aspect-ratio:2.4;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer;border:1px solid #0A1410;">${n}</div>
         ${chipBadge('straight', n)}
       </div>`;
     }
   }
   gridHtml += `</div>`;
-  const zeroHtml = `<div style="position:relative;max-width:280px;margin:0 auto;">
+  const zeroHtml = `<div style="position:relative;max-width:min(280px, 82vw);margin:0 auto;">
     <div onclick="roulettePlaceBet('${match.id}','${myId}','straight',0,rouletteChipValue)" style="${rouletteNumberCellStyle(0)}padding:8px;border-radius:4px;text-align:center;cursor:pointer;border:1px solid #0A1410;">0</div>
     ${chipBadge('straight', 0)}
   </div>`;
@@ -12393,32 +12489,33 @@ function rouletteBettingBoard(match, myId){
     ${myBets.map(b=>`<div class="rank-row"><span>${ROULETTE_BET_TYPES[b.type].label(b.param)} — ${b.amount}</span><button class="btn-danger btn-small" onclick="rouletteRemoveBet('${match.id}','${myId}','${b.id}')">✕</button></div>`).join('')}
   </div>` : `<p class="hint" style="margin-top:10px;">Nessuna puntata ancora piazzata.</p>`;
   return `
-    <p class="hint">Valore fiche:</p>
+    <p class="hint" style="margin-bottom:4px;">Valore fiche (disponibili: <b>${player.chips}</b>${totPuntato?', '+totPuntato+' già puntate':''}):</p>
     <div class="row-btns">${chipRow}</div>
-    ${zeroHtml}
-    ${gridHtml}
-    <div class="row-btns" style="flex-wrap:wrap;gap:4px;">
-      ${outsideBtn('dozen',1,'1ª dozzina')}${outsideBtn('dozen',2,'2ª dozzina')}${outsideBtn('dozen',3,'3ª dozzina')}
+    <div class="roulette-bet-scroll">
+      ${zeroHtml}
+      ${gridHtml}
+      <div class="row-btns" style="flex-wrap:wrap;gap:4px;">
+        ${outsideBtn('dozen',1,'1ª dozzina')}${outsideBtn('dozen',2,'2ª dozzina')}${outsideBtn('dozen',3,'3ª dozzina')}
+      </div>
+      <div class="row-btns" style="flex-wrap:wrap;gap:4px;margin-top:4px;">
+        ${outsideBtn('column',1,'Colonna 1')}${outsideBtn('column',2,'Colonna 2')}${outsideBtn('column',3,'Colonna 3')}
+      </div>
+      <div class="row-btns" style="flex-wrap:wrap;gap:4px;margin-top:4px;">
+        ${outsideBtn('low',null,'Manque 1-18')}${outsideBtn('high',null,'Passe 19-36')}
+      </div>
+      <div class="row-btns" style="flex-wrap:wrap;gap:4px;margin-top:4px;">
+        ${outsideBtn('red',null,'🔴 Rosso')}${outsideBtn('black',null,'⚫ Nero')}
+      </div>
+      <div class="row-btns" style="flex-wrap:wrap;gap:4px;margin-top:4px;">
+        ${outsideBtn('even',null,'Pari')}${outsideBtn('odd',null,'Dispari')}
+      </div>
+      ${betListHtml}
+      ${match.mode==='free' && cachedRouletteStats ? deviceStatsSummaryHTML(cachedRouletteStats) : ''}
     </div>
-    <div class="row-btns" style="flex-wrap:wrap;gap:4px;margin-top:4px;">
-      ${outsideBtn('column',1,'Colonna 1')}${outsideBtn('column',2,'Colonna 2')}${outsideBtn('column',3,'Colonna 3')}
-    </div>
-    <div class="row-btns" style="flex-wrap:wrap;gap:4px;margin-top:4px;">
-      ${outsideBtn('low',null,'Manque 1-18')}${outsideBtn('high',null,'Passe 19-36')}
-    </div>
-    <div class="row-btns" style="flex-wrap:wrap;gap:4px;margin-top:4px;">
-      ${outsideBtn('red',null,'🔴 Rosso')}${outsideBtn('black',null,'⚫ Nero')}
-    </div>
-    <div class="row-btns" style="flex-wrap:wrap;gap:4px;margin-top:4px;">
-      ${outsideBtn('even',null,'Pari')}${outsideBtn('odd',null,'Dispari')}
-    </div>
-    ${betListHtml}
-    <div class="row-btns" style="margin-top:12px;">
+    <div class="row-btns" style="margin-top:10px;">
       <button class="btn-secondary" style="flex:1;" onclick="rouletteClearBets('${match.id}','${myId}')" ${myBets.length?'':'disabled'}>Azzera puntate</button>
       <button class="btn-primary" style="flex:1;" onclick="rouletteConfirmReady('${match.id}','${myId}')" ${match.ready[myId]?'disabled':''}>${match.ready[myId]?'In attesa…':'Pronto, gira!'}</button>
-    </div>
-    <p class="hint" style="margin-top:6px;">Fiches disponibili: <b>${player.chips}</b>${totPuntato?' (di cui '+totPuntato+' già puntate questo giro)':''}</p>
-    ${match.mode==='free' && cachedRouletteStats ? deviceStatsSummaryHTML(cachedRouletteStats) : ''}`;
+    </div>`;
 }
 function rouletteResultPanel(match, myId){
   const r = match.lastResult;
@@ -12554,7 +12651,12 @@ function bjHandTotalLabel(cards){
   return v.total + (v.soft ? ' (soft)' : '');
 }
 function bjCardsHTML(cards, hideSecond){
-  return cards.map((c,i)=> i===1 && hideSecond ? pokerCardBack(38,54) : pokerMiniCard(c,38,54)).join('');
+  // Su schermi bassi (telefono orizzontale) piu' mani impilate rischiano di
+  // superare l'altezza disponibile: le carte restano leggibili anche un po'
+  // piu' piccole, quindi si riducono quando lo spazio verticale scarseggia.
+  const compact = window.innerHeight < 500;
+  const w = compact ? 30 : 38, h = compact ? 42 : 54;
+  return cards.map((c,i)=> i===1 && hideSecond ? pokerCardBack(w,h) : pokerMiniCard(c,w,h)).join('');
 }
 function bjSeatsRowHTML(match, myId){
   if(!match.seatSlots || !match.seatSlots.includes(null)) return ''; // tavolo al completo: nulla da mostrare
@@ -12567,9 +12669,9 @@ function bjSeatsRowHTML(match, myId){
     }
     return `<button class="btn-secondary btn-small" onclick="bjChangeSeat('${match.id}','${myId}',${i})">Posto ${i+1}: libero</button>`;
   }).join(' ');
-  return `<div style="margin-bottom:10px;">
-    <p class="hint" style="margin-bottom:6px;">Il tavolo (tocca un posto libero per spostarti):</p>
-    <div class="row-pills" style="flex-wrap:wrap;gap:6px;">${seats}</div>
+  return `<div class="bj-seats-row" style="margin-bottom:8px;">
+    <p class="hint bj-seats-hint" style="margin-bottom:4px;">Il tavolo (tocca un posto libero per spostarti):</p>
+    <div class="row-pills" style="flex-wrap:wrap;gap:5px;">${seats}</div>
   </div>`;
 }
 function bjBettingPanel(match, myId){
@@ -12578,10 +12680,10 @@ function bjBettingPanel(match, myId){
   const statsHtml = match.mode==='free' && cachedBlackjackStats ? deviceStatsSummaryHTML(cachedBlackjackStats) : '';
   return `
     ${bjSeatsRowHTML(match, myId)}
-    <p class="hint">Fiches disponibili: <b>${player.chips}</b></p>
+    <p class="hint" style="margin:4px 0;">Fiches disponibili: <b>${player.chips}</b></p>
     <div class="row-btns" style="flex-wrap:wrap;">${chipRow}</div>
-    <div class="turn-banner" style="text-align:center;margin-top:8px;">Puntata: <b>${bjCurrentBet}</b></div>
-    <div class="row-btns" style="margin-top:10px;">
+    <div class="turn-banner" style="text-align:center;margin-top:6px;">Puntata: <b>${bjCurrentBet}</b></div>
+    <div class="row-btns" style="margin-top:8px;">
       <button class="btn-secondary" style="flex:1;" onclick="bjCurrentBet=0; render(true)" ${bjCurrentBet?'':'disabled'}>Azzera</button>
       <button class="btn-primary" style="flex:1;" onclick="bjConfirmBetAndReady('${match.id}','${myId}')" ${(bjCurrentBet>0 && !match.ready[myId])?'':'disabled'}>${match.ready[myId]?'In attesa…':'Conferma puntata'}</button>
     </div>
@@ -12683,16 +12785,16 @@ function renderBlackjackMatch(match, claim){
     : (match.phase==='dealer' ? `<div class="turn-banner" style="text-align:center;">Il banco gioca…</div>` : '');
   const playersHtml = match.turnOrder.map(id=>{
     if(!bjPlayerHands(match,id).length) return '';
-    return `<div style="margin:8px 0;"><div style="font-weight:600;">${esc(nameOf(match,id))}${match.players.find(p=>p.id===id).isBot?' 🤖':''}</div>${bjPlayerHandsHTML(match, myId, id, match.dealerRevealed)}</div>`;
+    return `<div style="margin:5px 0;"><div style="font-weight:600;">${esc(nameOf(match,id))}${match.players.find(p=>p.id===id).isBot?' 🤖':''}</div>${bjPlayerHandsHTML(match, myId, id, match.dealerRevealed)}</div>`;
   }).join('');
   return `<div class="card">
     <div class="toolbar"><span>Black Jack · ${modeLabel}</span>${tableExitButton(match, myId)}</div>
     ${scoreBar}
     ${turnBanner}
-    <div style="margin:10px 0;">
+    <div style="margin:6px 0;">
       <div style="font-weight:600;">Banco</div>
-      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">${bjCardsHTML(match.dealerHand, dealerHidden)}</div>
-      <div class="hint">${dealerLabel}</div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:2px;">${bjCardsHTML(match.dealerHand, dealerHidden)}</div>
+      <div class="hint" style="margin:2px 0 0;">${dealerLabel}</div>
     </div>
     ${match.phase!=='result' ? playersHtml : ''}
     ${match.phase==='result' ? bjResultPanel(match, myId) : ''}
