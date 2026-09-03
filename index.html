@@ -1005,7 +1005,10 @@ function cardFxDealTable(names, myIndex, cardsPerPlayer, opts){
   const cx = vw/2, cy = vh/2;
   const marginX = cardW/2 + 14, marginY = cardH/2 + 14;
   const radius = Math.max(50, Math.min(vw, vh) * 0.28);
-  const backSrc = CARD_IMG['back'] || '';
+  // Il dorso mostrato durante il volo e' quello del mazzo giocato davvero in
+  // quella partita (passato da chi chiama), non sempre lo stesso: Scala 40 e
+  // Poker usano il mazzo "poker", non quello regionale italiano di default.
+  const backSrc = opts.backImg || CARD_IMG['back'] || '';
   for(let i=0;i<shown;i++){
     setTimeout(()=>{
       sndCardPlay();
@@ -6131,6 +6134,10 @@ function scala40ImageHref(card){
   if(card.kind==='jolly') return `cards-poker/Jolly-${card.color}.png`;
   return `cards-poker/${card.suit}-${card.rank}.png`;
 }
+// Dorso del mazzo "poker" (usato sia da Scala 40 che dal Poker): stesso
+// disegno per tutte le carte coperte di questo mazzo, sia nella mano
+// (pokerCardBack) sia nell'animazione di distribuzione.
+const POKER_BACK_IMG = 'cards-poker/back.png';
 
 function dealScala40Hand(match){
   const ids = match.turnOrder;
@@ -11049,6 +11056,7 @@ function renderScala40Match(match, claim){
       dealTableAnimState[dealKey] = 'started';
       const names = match.turnOrder.map(id=>nameOf(match,id));
       cardFxDealTable(names, match.turnOrder.indexOf(myId), 13, {
+        backImg: POKER_BACK_IMG,
         onDone: ()=>{ dealTableAnimState[dealKey]='done'; lastRenderKey=null; render(true); }
       });
     }
@@ -11216,7 +11224,7 @@ function pokerMiniCard(card, w, h){
 }
 function pokerCardBack(w,h){
   w=w||44; h=h||62;
-  return `<span class="hand-card" style="width:${w}px;height:${h}px;display:inline-block;background:#16261F;border-radius:6px;border:1px solid #3C5A4C;"></span>`;
+  return `<span class="hand-card" style="width:${w}px;height:${h}px;display:inline-block;"><img src="${POKER_BACK_IMG}" style="width:100%;height:100%;object-fit:contain;border-radius:6px;" onerror="this.parentElement.style.cssText+='background:#16261F;border:1px solid #3C5A4C;';this.remove();"/></span>`;
 }
 
 function pokerTableSVG(match, myId){
@@ -11336,6 +11344,7 @@ function renderPokerMatch(match, claim){
       dealTableAnimState[dealKey] = 'started';
       const names = active.map(p=>p.name);
       cardFxDealTable(names, active.findIndex(p=>p.id===myId), 2, {
+        backImg: POKER_BACK_IMG,
         onDone: ()=>{ dealTableAnimState[dealKey]='done'; lastRenderKey=null; render(true); }
       });
     }
