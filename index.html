@@ -760,6 +760,17 @@ document.addEventListener('pointerdown', function(){
   getAudioCtx(); // richiamabile a ogni tocco: se il context e' gia' attivo non ha alcun costo,
                  // ma se si e' sospeso (es. dopo un periodo in background) lo riattiva sempre
 });
+// Tiene traccia dell'ultima carta in mano toccata (posizione reale a schermo,
+// non ricostruita): serve solo per far partire l'animazione di lancio dal
+// punto esatto in cui stava la carta quando la tocchi. In fase di cattura,
+// cosi' scatta prima dell'onclick in linea che gioca davvero la carta. Le
+// mosse dei bot non passano mai di qui (non toccano nulla), quindi restano
+// naturalmente escluse senza bisogno di sapere chi sono "io" in quel gioco.
+let lastHandCardRect = null, lastHandCardAt = 0;
+document.addEventListener('click', function(e){
+  const btn = e.target.closest('.hand-card');
+  if(btn){ lastHandCardRect = btn.getBoundingClientRect(); lastHandCardAt = performance.now(); }
+}, true);
 function updateSoundToggleIcon(){
   const btn = document.getElementById('sound-toggle-btn');
   if(btn) btn.textContent = soundEnabled ? '🔊' : '🔇';
@@ -933,48 +944,78 @@ function cardFxDealBurst(handSize, backImgSrc){
     setTimeout(()=>{ cardFxThrow(backImgSrc || CARD_IMG['back'], {duration:600}); }, i*140);
   }
 }
-// Tavolo di distribuzione a volo d'uccello: mostra tutti i giocatori attorno a un
-// mazzo centrale, con le carte che volano a RONDE sovrapposte (una carta a
-// ciascun giocatore per ronda, poi la ronda successiva parte SENZA aspettare che
-// le carte precedenti siano atterrate) invece che rigorosamente una alla volta:
-// cosi' anche con mani da 13 carte e piu' giocatori la distribuzione resta
-// veloce e non blocca l'interfaccia. "Io" e' sempre in basso (piu' vicino a chi
-// guarda), gli altri sono disposti in ordine di turno attorno all'ovale.
-//
-// Animata con GSAP invece che con @keyframes generati a mano: GSAP anima le
-// proprieta' direttamente via JS ad ogni frame, quindi non ha il problema (gia'
-// incontrato con le variabili CSS dentro un @keyframes) di custom property
-// trattate come stringhe opache in assenza di @property — e gestisce da solo
-// la composizione di piu' trasformazioni (posizione, scala, rotazione) sullo
-// stesso elemento, senza bisogno di ricostruire a mano la stringa transform.
-// Tavolo ovale di distribuzione/lancio: un solo overlay alla volta. Se ne
-// parte uno nuovo mentre il precedente sta ancora finendo di sparire (es.
-// L'animazione a tavolo ovale (nomi dei giocatori disposti attorno a un
-// mazzo centrale, carte che volano ad ognuno) creava ripetutamente difetti
-// visivi difficili da eliminare del tutto — nomi ed etichette che finivano
-// tagliati dalle carte disegnate sopra, secondo il dispositivo e il numero
-// di giocatori. Invece di rincorrere l'ennesimo caso limite, la distribuzione
-// resta segnalata solo dal ritmo dei click delle carte (nessun overlay
-// grafico da posizionare): meno scenografico ma sempre corretto.
+// Fa volare una singola immagine di carta da un punto A a un punto B dello
+// schermo (rettangoli reali, presi da getBoundingClientRect su elementi
+// gia' a schermo — mai posizioni "indovinate" o ricostruite a parte). Nessun
+// riquadro di sfondo dietro, e object-fit:contain non ritaglia mai
+// l'immagine qualunque sia il suo rapporto larghezza/altezza: le due cause
+// dei difetti visivi delle versioni precedenti (tavolo ovale con etichette
+// sovrapposte alle carte, sfondo semitrasparente) qui non possono ripresentarsi
+// perche' non esistono ne' etichette ne' sfondo, solo la carta stessa in volo.
+function flyCardImage(imgSrc, fromRect, toRect, opts){
+  opts = opts || {};
+  if(!fromRect || !toRect || !imgSrc) return;
+  const w = opts.width || 46, h = opts.height || 64;
+  const el = document.createElement('img');
+  el.src = imgSrc;
+  el.alt = '';
+  el.style.cssText = `position:fixed;left:0;top:0;z-index:99999;pointer-events:none;width:${w}px;height:${h}px;object-fit:contain;border-radius:5px;filter:drop-shadow(0 4px 10px rgba(0,0,0,.5));`;
+  document.body.appendChild(el);
+  const fx = fromRect.left + fromRect.width/2 - w/2, fy = fromRect.top + fromRect.height/2 - h/2;
+  const tx = toRect.left + toRect.width/2 - w/2, ty = toRect.top + toRect.height/2 - h/2;
+  gsap.set(el, { x:fx, y:fy, opacity:0, scale:0.75, rotate: opts.rot0||0 });
+  gsap.timeline({ onComplete: ()=>{ gsap.to(el, { opacity:0, duration:0.16, onComplete:()=>el.remove() }); } })
+    .to(el, { opacity:1, duration:0.07 }, 0)
+    .to(el, { x:tx, y:ty, scale:1, rotate:0, duration:opts.duration||0.34, ease:'power2.out' }, 0);
+}
+// Distribuzione a inizio mano: una carta coperta alla volta vola dal centro
+// del tavolo (o dello schermo, se il tavolo vero non e' ancora a schermo —
+// la schermata "Distribuzione in corso" lo sostituisce del tutto mentre
+// dura) verso l'esterno, a raggiera, e sparisce — senza puntare a una
+// posizione precisa per ciascun giocatore: e' proprio quel tentativo,
+// fragile e diverso per ogni gioco, ad aver causato i tagli delle versioni
+// precedenti. Il numero di giocatori conta solo per il ritmo dei click.
 function cardFxDealTable(names, myIndex, cardsPerPlayer, opts){
   opts = opts || {};
   if(!Array.isArray(names) || names.length<1) return;
   const n = names.length;
   cardsPerPlayer = Math.max(1, cardsPerPlayer||1);
   const totalCards = n*cardsPerPlayer;
-  const clickCount = Math.min(totalCards, 14); // oltre un tot i click ravvicinati si accavallano senza aggiungere nulla
-  const clickGap = 70;
-  for(let i=0;i<clickCount;i++){
-    setTimeout(sndCardPlay, i*clickGap);
+  const shown = Math.min(totalCards, 14); // oltre un tot i lanci ravvicinati si accavallano senza aggiungere nulla
+  const gap = 100;
+  const anchor = document.querySelector('#app .card') || document.body;
+  const rect = anchor.getBoundingClientRect();
+  const cx = rect.left + rect.width/2, cy = rect.top + Math.min(rect.height*0.45, 170);
+  const radius = Math.max(70, Math.min(rect.width, 300) * 0.34);
+  const backSrc = CARD_IMG['back'] || '';
+  for(let i=0;i<shown;i++){
+    setTimeout(()=>{
+      sndCardPlay();
+      const angle = (i * 137.5) * Math.PI/180; // angolo aureo: ogni carta parte in una direzione diversa dalla precedente
+      const from = { left:cx, top:cy, width:0, height:0 };
+      const to = { left:cx+Math.cos(angle)*radius, top:cy+Math.sin(angle)*radius, width:0, height:0 };
+      flyCardImage(backSrc, from, to, { width:34, height:47, duration:0.32, rot0:Math.random()*36-18 });
+    }, i*gap);
   }
-  const totalDuration = Math.max(350, clickCount*clickGap + 150);
+  const totalDuration = Math.max(350, shown*gap + 200);
   setTimeout(()=>{ if(typeof opts.onDone==='function') opts.onDone(); }, totalDuration);
 }
-// Stesso principio del lancio di una singola carta quando un giocatore
-// gioca/scarta: solo il suono, senza l'overlay a tavolo ovale (vedi sopra).
+// Lancio di una singola carta quando un giocatore gioca/scarta: il suono
+// parte sempre, ma la carta vola visibilmente solo quando so DAVVERO da
+// dove farla partire — cioe' quando sei stato tu a toccarla un attimo fa
+// (vedi il listener su .hand-card piu' sopra). Per le mosse dei bot non
+// esiste una vera carta a schermo da cui partire (le loro mani non sono
+// disegnate), quindi resta solo il suono invece di una posizione indovinata.
 async function cardFxThrowFromSeat(match, playerIds, throwerId, imgSrc){
   if(!Array.isArray(playerIds) || playerIds.length<1 || !throwerId) return;
   sndCardPlay();
+  if(!lastHandCardRect || performance.now()-lastHandCardAt > 400) return;
+  const fromRect = lastHandCardRect;
+  lastHandCardRect = null; // consumata: non va riusata per un'altra animazione
+  const toEl = document.querySelector('.table-wrap') || document.querySelector('#app .card');
+  if(!toEl) return;
+  const toRect = toEl.getBoundingClientRect();
+  flyCardImage(imgSrc, fromRect, toRect, { width:46, height:64, duration:0.34 });
 }
 function hudAvatar(name){
   const initial = (name||'?').trim().charAt(0).toUpperCase() || '?';
@@ -10279,8 +10320,8 @@ function renderUnoHand(match, myId){
     }
     const style = playable
       ? 'cursor:pointer;box-shadow:0 0 0 2px #D4AF6A;'
-      : 'opacity:0.55;';
-    return `<div style="${style}border-radius:6px;" ${onclick?`onclick="${onclick}"`:''}>${unoCardSVG(c, 44, 62)}</div>`;
+      : 'opacity:0.55;cursor:default;';
+    return `<div class="hand-card" style="${style}border-radius:6px;" ${onclick?`onclick="${onclick}"`:''}>${unoCardSVG(c, 44, 62)}</div>`;
   }).join('');
   return `<div class="hand-grid6" style="margin-top:10px;">${cards}</div>`;
 }
