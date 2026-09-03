@@ -967,18 +967,23 @@ function flyCardImage(imgSrc, fromRect, toRect, opts){
   el.alt = '';
   el.style.cssText = `position:fixed;left:0;top:0;z-index:99999;pointer-events:none;width:${w}px;height:${h}px;object-fit:contain;border-radius:5px;filter:drop-shadow(0 4px 10px rgba(0,0,0,.5));`;
   document.body.appendChild(el);
-  const fx = fromRect.left + fromRect.width/2 - w/2, fy = fromRect.top + fromRect.height/2 - h/2;
-  const tx = toRect.left + toRect.width/2 - w/2, ty = toRect.top + toRect.height/2 - h/2;
+  // Sempre dentro i bordi reali della finestra: un rettangolo di partenza o
+  // arrivo troppo vicino a un margine (es. una carta in mano appena dentro
+  // il bordo sinistro) non deve mai far uscire la carta dallo schermo
+  // durante il volo, dove verrebbe tagliata dal bordo della finestra stessa.
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const clampX = x => Math.max(2, Math.min(vw-w-2, x));
+  const clampY = y => Math.max(2, Math.min(vh-h-2, y));
+  const fx = clampX(fromRect.left + fromRect.width/2 - w/2), fy = clampY(fromRect.top + fromRect.height/2 - h/2);
+  const tx = clampX(toRect.left + toRect.width/2 - w/2), ty = clampY(toRect.top + toRect.height/2 - h/2);
   gsap.set(el, { x:fx, y:fy, opacity:0, scale:0.75, rotate: opts.rot0||0 });
   gsap.timeline({ onComplete: ()=>{ gsap.to(el, { opacity:0, duration:0.16, onComplete:()=>el.remove() }); } })
     .to(el, { opacity:1, duration:0.07 }, 0)
     .to(el, { x:tx, y:ty, scale:1, rotate:0, duration:opts.duration||0.34, ease:'power2.out' }, 0);
 }
 // Distribuzione a inizio mano: una carta coperta alla volta vola dal centro
-// del tavolo (o dello schermo, se il tavolo vero non e' ancora a schermo —
-// la schermata "Distribuzione in corso" lo sostituisce del tutto mentre
-// dura) verso l'esterno, a raggiera, e sparisce — senza puntare a una
-// posizione precisa per ciascun giocatore: e' proprio quel tentativo,
+// dello schermo verso l'esterno, a raggiera, e sparisce — senza puntare a
+// una posizione precisa per ciascun giocatore: e' proprio quel tentativo,
 // fragile e diverso per ogni gioco, ad aver causato i tagli delle versioni
 // precedenti. Il numero di giocatori conta solo per il ritmo dei click.
 function cardFxDealTable(names, myIndex, cardsPerPlayer, opts){
@@ -989,18 +994,30 @@ function cardFxDealTable(names, myIndex, cardsPerPlayer, opts){
   const totalCards = n*cardsPerPlayer;
   const shown = Math.min(totalCards, 14); // oltre un tot i lanci ravvicinati si accavallano senza aggiungere nulla
   const gap = 100;
-  const anchor = document.querySelector('#app .card') || document.body;
-  const rect = anchor.getBoundingClientRect();
-  const cx = rect.left + rect.width/2, cy = rect.top + Math.min(rect.height*0.45, 170);
-  const radius = Math.max(70, Math.min(rect.width, 300) * 0.34);
+  const cardW = 34, cardH = 47;
+  // Centro del viewport corrente (non della card "Distribuzione in corso"):
+  // quella puo' essere molto vicina al bordo superiore su schermi bassi o
+  // con intestazione compatta, e una carta lanciata verso l'alto da li'
+  // finirebbe subito fuori dallo schermo — tagliata dal bordo della
+  // finestra stessa, non dall'immagine. Il centro del viewport lascia
+  // sempre spazio in ogni direzione.
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const cx = vw/2, cy = vh/2;
+  const marginX = cardW/2 + 14, marginY = cardH/2 + 14;
+  const radius = Math.max(50, Math.min(vw, vh) * 0.28);
   const backSrc = CARD_IMG['back'] || '';
   for(let i=0;i<shown;i++){
     setTimeout(()=>{
       sndCardPlay();
       const angle = (i * 137.5) * Math.PI/180; // angolo aureo: ogni carta parte in una direzione diversa dalla precedente
+      // Vincolata dentro i margini reali dello schermo: qualunque angolo e
+      // qualunque dimensione di schermo, la carta non puo' mai uscire dal
+      // bordo della finestra (dove verrebbe tagliata) durante il volo.
+      const toX = Math.max(marginX, Math.min(vw-marginX, cx+Math.cos(angle)*radius));
+      const toY = Math.max(marginY, Math.min(vh-marginY, cy+Math.sin(angle)*radius));
       const from = { left:cx, top:cy, width:0, height:0 };
-      const to = { left:cx+Math.cos(angle)*radius, top:cy+Math.sin(angle)*radius, width:0, height:0 };
-      flyCardImage(backSrc, from, to, { width:34, height:47, duration:0.32, rot0:Math.random()*36-18 });
+      const to = { left:toX, top:toY, width:0, height:0 };
+      flyCardImage(backSrc, from, to, { width:cardW, height:cardH, duration:0.32, rot0:Math.random()*36-18 });
     }, i*gap);
   }
   const totalDuration = Math.max(350, shown*gap + 200);
@@ -12855,7 +12872,28 @@ if(document.readyState !== 'loading') avviaApp();
 // fallisce silenziosamente: l'app resta comunque utilizzabile online.
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
-    navigator.serviceWorker.register('sw.js').catch(()=>{});
+    navigator.serviceWorker.register('sw.js').then(reg=>{
+      // Controlla subito se sw.js e' cambiato da quando e' stato installato
+      // l'ultima volta, invece di aspettare il controllo automatico del
+      // browser (che puo' metterci ore): senza, chi ha gia' aperto l'app
+      // resterebbe bloccato sulla versione vecchia — anche piu' di una
+      // pubblicazione indietro — finche' non svuota la cache a mano.
+      reg.update().catch(()=>{});
+    }).catch(()=>{});
+  });
+  // Quando il nuovo service worker prende il controllo (sw.js e' cambiato,
+  // vedi sopra), la scheda gia' aperta non se ne accorgerebbe da sola: la
+  // ricarico una sola volta cosi' l'HTML/JS aggiornati arrivano davvero,
+  // invece di lasciare in mano quelli con cui la pagina era stata caricata.
+  // Solo se c'era GIA' un controller (cioe' e' un aggiornamento, non la
+  // primissima installazione): altrimenti ricaricherebbe anche al primo
+  // avvio, quando non ce n'e' alcun bisogno.
+  let swReloading = false;
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', ()=>{
+    if(swReloading || !hadController) return;
+    swReloading = true;
+    window.location.reload();
   });
 }
 </script>
