@@ -837,6 +837,12 @@ function sndCardPlay(){
     const gain = ctx.createGain();
     gain.gain.value = 0.55;
     src.connect(gain); gain.connect(ctx.destination);
+    // Ogni carta lanciata o distribuita ne crea uno: senza scollegarli a fine
+    // riproduzione, in una sessione lunga (piu' mani, tavoli affollati) i nodi
+    // audio inutilizzati si accumulano e possono con il tempo far smettere di
+    // funzionare il suono. onended arriva sempre, sia a fine naturale che se
+    // il contesto audio viene sospeso nel frattempo.
+    src.onended = () => { try{ src.disconnect(); gain.disconnect(); }catch(e){} };
     src.start();
   });
 }
