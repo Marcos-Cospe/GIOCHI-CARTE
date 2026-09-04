@@ -779,7 +779,7 @@ function updateMenuMusic(inMatch){
     return;
   }
   if(el.paused){
-    el.volume = 0.35;
+    el.volume = 0.18; // sottofondo: deve restare sotto ai click dei pulsanti, non sopra
     el.play().catch(()=>{}); // bloccato dall'autoplay finche' non arriva un tocco: riprovato ad ogni pointerdown
   }
 }
@@ -894,8 +894,8 @@ function sndBallTick(){ sndTone(2600, 0.02, {type:'square', peak:0.035}); }
 // piu' "meccanico" per i pulsanti dentro una partita. Si sommano — non
 // sostituiscono — agli eventuali suoni gia' specifici di un'azione (es. le
 // fiches, la carta lanciata): un click di conferma sotto e' normale nelle UI di gioco.
-function sndClickMenu(){ sndTone(900, 0.045, {type:'sine', peak:0.08, freqTo:650}); }
-function sndClickGame(){ sndTone(320, 0.05, {type:'square', peak:0.09, freqTo:170}); }
+function sndClickMenu(){ sndTone(900, 0.045, {type:'sine', peak:0.24, freqTo:650}); }
+function sndClickGame(){ sndTone(320, 0.05, {type:'square', peak:0.26, freqTo:170}); }
 let renderGen = 0; // vedi guardia anti-corsa dentro render()
 let localOverrideMatch = null;
 let localClaims = {}; // fallback locale: matchId -> claim, se lo storage personale fallisce
