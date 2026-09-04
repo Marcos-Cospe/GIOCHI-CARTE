@@ -500,6 +500,7 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
   </div>
   <button id="intro-skip-btn" onclick="event.stopPropagation(); introSkip()">Salta ›</button>
 </div>
+<audio id="menu-music" src="./menu-music.mp3" loop preload="auto" style="display:none;"></audio>
 <div class="wrap">
   <header class="top">
     <div class="brand">SALA GIOCHI</div>
@@ -755,10 +756,29 @@ function toggleSound(){
   localStorage.setItem('sg:sound', soundEnabled?'on':'off');
   if(soundEnabled) getAudioCtx();
   updateSoundToggleIcon();
+  updateMenuMusic(document.body.classList.contains('in-match'));
+}
+// Musica di sottofondo nel menu (lobby/selezione/creazione sala), silenziata
+// non appena si entra in una partita vera e propria — stessa condizione
+// 'in-match' che usa gia' render() per il resto dell'interfaccia, cosi' resta
+// automaticamente coerente con qualunque schermata di menu esistente o
+// futura senza doverle elencare una per una.
+function updateMenuMusic(inMatch){
+  const el = document.getElementById('menu-music');
+  if(!el) return;
+  if(inMatch || !soundEnabled){
+    if(!el.paused) el.pause();
+    return;
+  }
+  if(el.paused){
+    el.volume = 0.35;
+    el.play().catch(()=>{}); // bloccato dall'autoplay finche' non arriva un tocco: riprovato ad ogni pointerdown
+  }
 }
 document.addEventListener('pointerdown', function(){
   getAudioCtx(); // richiamabile a ogni tocco: se il context e' gia' attivo non ha alcun costo,
                  // ma se si e' sospeso (es. dopo un periodo in background) lo riattiva sempre
+  updateMenuMusic(document.body.classList.contains('in-match'));
 });
 // Tiene traccia dell'ultima carta in mano toccata (posizione reale a schermo,
 // non ricostruita): serve solo per far partire l'animazione di lancio dal
@@ -770,6 +790,16 @@ let lastHandCardRect = null, lastHandCardAt = 0;
 document.addEventListener('click', function(e){
   const btn = e.target.closest('.hand-card');
   if(btn){ lastHandCardRect = btn.getBoundingClientRect(); lastHandCardAt = performance.now(); }
+}, true);
+// Click generico su qualunque <button> reale dell'app: suono "menu" se non
+// c'e' una partita in corso (schermate di lobby/selezione/creazione sala),
+// suono "in game" se invece siamo dentro una partita — la stessa classe
+// 'in-match' che render() gia' mette/toglie dal body per lo stile.
+document.addEventListener('click', function(e){
+  const btn = e.target.closest('button');
+  if(!btn) return;
+  if(document.body.classList.contains('in-match')) sndClickGame();
+  else sndClickMenu();
 }, true);
 function updateSoundToggleIcon(){
   const btn = document.getElementById('sound-toggle-btn');
@@ -851,6 +881,13 @@ function sndWin(){ [523.25,659.25,783.99,1046.5].forEach((f,i)=> sndTone(f, 0.22
 function sndSplash(){ sndNoise(0.35, {freq:2200, freqTo:200, peak:0.16, decay:1.6}); }
 function sndExplosion(){ sndNoise(0.45, {freq:1400, freqTo:80, peak:0.22, decay:1.1}); sndTone(90, 0.30, {peak:0.14, freqTo:40}); }
 function sndBallTick(){ sndTone(2600, 0.02, {type:'square', peak:0.035}); }
+// Due click generici per i pulsanti, diversi a orecchio: uno leggero da
+// interfaccia per i pulsanti del menu (prima di avviare una partita), uno
+// piu' "meccanico" per i pulsanti dentro una partita. Si sommano — non
+// sostituiscono — agli eventuali suoni gia' specifici di un'azione (es. le
+// fiches, la carta lanciata): un click di conferma sotto e' normale nelle UI di gioco.
+function sndClickMenu(){ sndTone(900, 0.045, {type:'sine', peak:0.08, freqTo:650}); }
+function sndClickGame(){ sndTone(320, 0.05, {type:'square', peak:0.09, freqTo:170}); }
 let renderGen = 0; // vedi guardia anti-corsa dentro render()
 let localOverrideMatch = null;
 let localClaims = {}; // fallback locale: matchId -> claim, se lo storage personale fallisce
@@ -2383,6 +2420,7 @@ async function render(force){
   // 1) partita in corso (di sala o in singolo)
   const match = await getActiveMatch();
   if(myGen!==renderGen) return;
+  updateMenuMusic(!!match);
   if(match){
     document.body.classList.add('in-match');
     document.body.classList.toggle('risiko-match', match.game==='risiko');
@@ -12893,6 +12931,7 @@ function introSkip(){
     v.play().then(()=>{ setTimeout(()=>{ v.pause(); }, 250); }).catch(()=>{});
   }
   getAudioCtx();
+  updateMenuMusic(document.body.classList.contains('in-match'));
   introHide();
 }
 function introStart(){
@@ -12902,6 +12941,7 @@ function introStart(){
   if(hint) hint.remove();
   v.muted = false;
   getAudioCtx(); // stesso gesto: sblocco anche i suoni di gioco per il resto della sessione
+  updateMenuMusic(document.body.classList.contains('in-match'));
   v.play().catch(()=>{
     // rete di sicurezza estrema, non dovrebbe mai servire dato che e' un vero tap dell'utente
     v.muted = true;

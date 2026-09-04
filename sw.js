@@ -11,7 +11,7 @@
 // la prossima visita) e "cache-first" per tutto il resto (immagini delle
 // carte, icone, manifest) che cambia raramente.
 
-const CACHE_NAME = 'sala-giochi-v6';
+const CACHE_NAME = 'sala-giochi-v7';
 const APP_SHELL = [
   './',
   './index.html',
@@ -21,7 +21,8 @@ const APP_SHELL = [
   './apple-touch-icon.png',
   './intro.mp4',
   './loser.jpg',
-  './card-sound.mp3'
+  './card-sound.mp3',
+  './menu-music.mp3'
 ];
 
 self.addEventListener('install', (event) => {
