@@ -7032,6 +7032,11 @@ function bjBotDecision(hand, canDouble, canSplit, chipsAvailable){
   return v.total<17 ? 'hit' : 'stand';
 }
 
+// Tempo massimo per piazzare la puntata prima che il giro parta comunque da
+// solo: allo scadere, chi non ha ancora confermato riceve la stessa puntata
+// minima automatica gia' usata per i bot (min(20, fiches disponibili)),
+// cosi' la partita non resta mai bloccata in attesa di qualcuno.
+const BJ_BETTING_TIMER_MS = 10000;
 function buildBlackjackMatch(id, names, startingChips, mode){
   const chips = startingChips || 1000;
   const players = names.map((name,i)=>({id:'p'+i, name, isBot:false, chips, busted:false}));
@@ -7042,6 +7047,7 @@ function buildBlackjackMatch(id, names, startingChips, mode){
     players, turnOrder: players.map(p=>p.id), seatSlots,
     mode: mode==='tournament' ? 'tournament' : 'free',
     phase:'betting', bets:{}, ready:{}, roundNumber:1,
+    bettingDeadline: Date.now()+BJ_BETTING_TIMER_MS,
     deck:[], hands:{}, dealerHand:null, dealerRevealed:false,
     currentPlayerId:null, currentHandIdx:0,
     winnerId:null, bustedPlayerId:null, tieWinners:null
@@ -7237,6 +7243,7 @@ async function bjNextRound(matchId){
   match.currentPlayerId = null; match.currentHandIdx = 0;
   match.roundNumber++;
   match.phase = 'betting';
+  match.bettingDeadline = Date.now()+BJ_BETTING_TIMER_MS;
   await setActiveMatch(match);
   await render();
 }
@@ -7324,6 +7331,43 @@ async function scheduleBlackjackBotMove(match){
     const decision = bjBotDecision(curHand, curHand.cards.length===2, curHand.cards.length===2 && !curHand.isSplitHand, bot.chips);
     await bjPlayerAction(cur.id, bot.id, decision);
   }, 650);
+}
+// Timer per piazzare la puntata: allo scadere, chiunque non abbia ancora
+// confermato (di solito un giocatore umano indeciso — i bot puntano gia'
+// all'istante) riceve la stessa puntata minima automatica dei bot, cosi' il
+// giro parte comunque invece di restare bloccato in attesa di qualcuno.
+let bjAutoStartKey = null;
+async function bjAutoStartIfExpired(matchId){
+  const match = await getActiveMatch();
+  if(!match || match.id!==matchId || match.phase!=='betting' || !match.bettingDeadline) return;
+  if(Date.now() < match.bettingDeadline) return;
+  const key = match.id+'|'+match.roundNumber;
+  if(bjAutoStartKey===key) return;
+  bjAutoStartKey = key;
+  let cambiato = false;
+  match.turnOrder.forEach(id=>{
+    const p = match.players.find(x=>x.id===id);
+    if(p.busted){ if(!match.ready[id]){ match.ready[id]=true; cambiato=true; } return; }
+    if(match.ready[id]) return;
+    if(!match.bets[id]){ const amount = Math.min(20, p.chips); if(amount>0){ match.bets[id]=amount; } else { p.busted=true; } }
+    match.ready[id] = true;
+    cambiato = true;
+  });
+  if(!cambiato) return;
+  if(match.turnOrder.every(id=> match.players.find(p=>p.id===id).busted || match.ready[id])){
+    bjStartDeal(match);
+    if(match.phase==='dealer') await bjRunDealerAndSettle(match);
+  }
+  await setActiveMatch(match);
+  await render();
+}
+let bjBettingTicker = null;
+function bjEnsureBettingTicker(){
+  if(bjBettingTicker) return;
+  bjBettingTicker = setInterval(()=>{ render(true); }, 500);
+}
+function bjStopBettingTicker(){
+  if(bjBettingTicker){ clearInterval(bjBettingTicker); bjBettingTicker = null; }
 }
 
 // ============================================================================
@@ -12967,8 +13011,8 @@ function bjTableSVG(match, myId){
   const dealerCardW = compact ? 26 : 30, dealerCardH = compact ? 37 : 42;
   const dealerCardsHtml = dealerCards.length ? `<foreignObject x="${(cx-dealerCardW*2.2).toFixed(1)}" y="${(cyTop-dealerCardH-6).toFixed(1)}" width="${(dealerCardW*4.4).toFixed(1)}" height="${dealerCardH}"><div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;justify-content:center;gap:2px;">${dealerCards.map((c,i)=> i===1 && dealerHidden ? pokerCardBack(dealerCardW,dealerCardH) : pokerMiniCard(c,dealerCardW,dealerCardH)).join('')}</div></foreignObject>` : '';
 
-  return `<div class="bj-table-svg-wrap" style="display:flex;justify-content:center;margin:6px 0;max-height:min(230px, 30vh);">
-    <svg viewBox="0 0 ${VB_W} ${VB_H}" width="100%" style="max-width:440px;max-height:min(230px, 30vh);width:auto;display:block;">
+  return `<div class="bj-table-svg-wrap" style="display:flex;justify-content:center;margin:4px 0;max-height:min(200px, 26vh);">
+    <svg viewBox="0 0 ${VB_W} ${VB_H}" width="100%" style="max-width:440px;max-height:min(200px, 26vh);width:auto;display:block;">
       <defs>
         <linearGradient id="bjRimGrad" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stop-color="#5C3A1C"/><stop offset="100%" stop-color="#2A1A0C"/>
@@ -12994,6 +13038,7 @@ function renderBlackjackMatch(match, claim){
   const revealAll = claim.type==='all';
   const scoreBar = `<div class="row-pills" style="flex-wrap:wrap;">${match.players.map(p=>`<span class="pill" style="margin:2px 4px 2px 0;${p.busted?'opacity:0.5;':''}">${esc(p.name)}${p.isBot?' 🤖':''} <b>${p.chips}</b></span>`).join('')}</div>`;
   const modeLabel = match.mode==='tournament' ? ('mano '+match.roundNumber+'/'+BJ_TOURNAMENT_ROUNDS) : ('mano '+match.roundNumber);
+  if(match.phase!=='betting') bjStopBettingTicker();
 
   if(match.phase==='ended'){
     maybeSaveBlackjackHistory(match);
@@ -13014,9 +13059,17 @@ function renderBlackjackMatch(match, claim){
   }
   if(match.phase==='betting'){
     if(!myId && !revealAll) return `<div class="card"><div class="toolbar"><span>Black Jack</span></div><p class="hint">Stai a guardare questa partita.</p></div>`;
+    bjEnsureBettingTicker();
+    bjAutoStartIfExpired(match.id); // fire-and-forget: se il tempo e' scaduto fa partire il giro da solo
+    const secondsLeft = match.bettingDeadline ? Math.max(0, Math.ceil((match.bettingDeadline-Date.now())/1000)) : null;
+    // Il conto alla rovescia e' una fiche in piu' nella stessa riga dei
+    // giocatori (non una riga a parte): sulla riga va gia' a capo da solo
+    // se serve, invece di aggiungere sempre un blocco fisso in altezza.
+    const timerPill = secondsLeft!=null ? `<span class="pill" style="border-color:var(--gold-soft);">⏱ ${secondsLeft}s</span>` : '';
+    const scoreBarWithTimer = `<div class="row-pills" style="flex-wrap:wrap;">${match.players.map(p=>`<span class="pill" style="margin:2px 4px 2px 0;${p.busted?'opacity:0.5;':''}">${esc(p.name)}${p.isBot?' 🤖':''} <b>${p.chips}</b></span>`).join('')}${timerPill}</div>`;
     return `<div class="card">
       <div class="toolbar"><span>Black Jack · ${modeLabel}</span>${tableExitButton(match, myId)}</div>
-      ${scoreBar}
+      ${scoreBarWithTimer}
       ${bjTableSVG(match, myId)}
       ${bjBettingPanel(match, myId)}
     </div>`;
