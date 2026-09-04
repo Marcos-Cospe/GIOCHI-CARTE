@@ -5376,11 +5376,15 @@ async function cavaCamisaFlip(matchId, flipperId){
 
   const revealCard = { flipperId, suit:card.suit, rank:card.rank, special: !!specialValue, pileAwardedTo: null };
   if(pileAwardedTo){
-    const wonCards = match.center.splice(0, match.center.length);
-    match.hands[pileAwardedTo].push(...shuffle(wonCards));
+    // Il mazzetto NON si sposta subito nella mano del vincitore: se lo
+    // facessimo qui, "match.center" risulterebbe gia' vuoto nella schermata
+    // di rivelazione che segue, e l'ultima carta girata (quella che ha
+    // deciso la presa) sparirebbe dal tavolo proprio nel momento in cui
+    // dovrebbe essere ben visibile. Resta sul tavolo finche' non si preme
+    // "Continua" (vedi continueAfterCavaCamisaFlip).
     match.currentId = pileAwardedTo;
     revealCard.pileAwardedTo = pileAwardedTo;
-    revealCard.pileSize = wonCards.length;
+    revealCard.pileSize = match.center.length;
     match.pendingReveal = true; // ci si ferma SOLO quando qualcuno prende il mazzetto, specificando chi
   }
   match.lastFlip = revealCard;
@@ -5393,6 +5397,10 @@ async function continueAfterCavaCamisaFlip(matchId){
   if(!match || match.id!==matchId || !match.pendingReveal) return;
   match.pendingReveal = false;
   const winnerId = match.lastFlip.pileAwardedTo;
+  if(winnerId){
+    const wonCards = match.center.splice(0, match.center.length);
+    match.hands[winnerId].push(...shuffle(wonCards));
+  }
   if(winnerId && match.hands[winnerId].length===CAVA_DECK_SIZE){
     finishCavaCamisaDeal(match, winnerId);
     await maybeSaveCavaCamisaHistory(match);
