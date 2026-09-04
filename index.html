@@ -2411,6 +2411,30 @@ function renderRoom(room){
   </div>`;
 }
 
+// Alcuni pannelli di gioco scorrono al proprio interno (puntate roulette,
+// colonna info di Poker/Risiko in orizzontale, chat): dato che ogni
+// render() ricrea da zero tutto il contenuto di #app, senza questo
+// accorgimento perderebbero la propria posizione di scorrimento a ogni
+// singola azione — anche la piu' banale — dando la sensazione che "la
+// visuale si sposti da sola" a ogni tocco. Si salva e ripristina sia lo
+// scroll della pagina intera sia quello dei pannelli interni noti.
+const SCROLLABLE_PANEL_SELECTORS = ['.roulette-bet-scroll', '.poker-info-col', '.risiko-panel-col', '#chat-messages'];
+function captureScrollState(root){
+  const panels = {};
+  SCROLLABLE_PANEL_SELECTORS.forEach(sel=>{
+    const el = root.querySelector(sel);
+    if(el) panels[sel] = el.scrollTop;
+  });
+  return { pageY: window.scrollY, panels };
+}
+function restoreScrollState(root, state){
+  if(!state) return;
+  Object.keys(state.panels).forEach(sel=>{
+    const el = root.querySelector(sel);
+    if(el) el.scrollTop = state.panels[sel];
+  });
+  if(window.scrollY !== state.pageY) window.scrollTo(0, state.pageY);
+}
 async function render(force){
   const app = document.getElementById('app');
   // Guardia anti-corsa: se l'utente preme due pulsanti in rapida successione (es.
@@ -2469,7 +2493,9 @@ async function render(force){
                                 ? renderRisikoMatch(match, claim || {type:'all'})
                                 : (claim ? renderMatch(match, claim) : renderSeatSelect(match));
     if(myGen!==renderGen) return;
+    const scrollState = captureScrollState(app);
     app.innerHTML = matchHtml;
+    restoreScrollState(app, scrollState);
     applyScreenTransition('match');
     if(match.game==='roulette') activateRouletteSpinAnimation();
     if(match.game==='battaglianavale') activateBattleshipShotAnimation(match, claim);
