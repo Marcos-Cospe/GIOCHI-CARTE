@@ -319,7 +319,12 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
      rimpicciolire il tabellone fino a renderlo illeggibile. */
   .boardgame-layout{display:flex;flex-direction:row;align-items:flex-start;gap:12px;}
   .boardgame-board-col{flex:0 0 auto;}
-  .boardgame-info-col{flex:1;min-width:0;}
+  /* Nella disposizione della flotta di Battaglia Navale questa colonna
+     porta molti piu' pulsanti delle altre schermate (nave, orientamento,
+     frecce, conferma tutti insieme apposta, invece che sparsi sopra/sotto
+     la griglia): se non ci stanno tutti in altezza, scorrono qui dentro
+     invece di far scorrere l'intera pagina. */
+  .boardgame-info-col{flex:1;min-width:0;max-height:calc(100vh - 128px);overflow-y:auto;}
   .boardgame-info-col .toolbar{margin-bottom:6px;}
   .boardgame-info-col h3{margin-top:4px;}
   .bs-grids-row{display:flex;flex-direction:row;gap:10px;}
@@ -2421,7 +2426,7 @@ function renderRoom(room){
 // singola azione — anche la piu' banale — dando la sensazione che "la
 // visuale si sposti da sola" a ogni tocco. Si salva e ripristina sia lo
 // scroll della pagina intera sia quello dei pannelli interni noti.
-const SCROLLABLE_PANEL_SELECTORS = ['.roulette-bet-scroll', '.poker-info-col', '.risiko-panel-col', '#chat-messages'];
+const SCROLLABLE_PANEL_SELECTORS = ['.roulette-bet-scroll', '.poker-info-col', '.risiko-panel-col', '.boardgame-info-col', '#chat-messages'];
 function captureScrollState(root){
   const panels = {};
   SCROLLABLE_PANEL_SELECTORS.forEach(sel=>{
@@ -5691,13 +5696,15 @@ function renderCavaCamisaMatch(match, claim){
   const challengeBanner = (!match.pendingReveal && match.pendingChallenge) ? `
     <div class="turn-banner">Carta speciale! <b>${esc(nameOf(match,match.pendingChallenge.throwerId))}</b> si prende il mazzetto se ${esc(nameOf(match,flipperId))} gira ${match.pendingChallenge.needed-match.pendingChallenge.done} cart${(match.pendingChallenge.needed-match.pendingChallenge.done)===1?'a':'e'} senza altre sorprese.</div>` : '';
 
+  // Solo il testo qui sopra al tavolo: il pulsante "Continua" sta invece
+  // GIU' insieme a "Tira una carta" (vedi azioniBtn) — sono due azioni che
+  // non capitano mai insieme, quindi occupano lo stesso posto sotto il
+  // tavolo invece di uno stare sopra e l'altro sotto.
   const revealBanner = match.pendingReveal ? (()=>{
     const lf = match.lastFlip;
     const chi = esc(nameOf(match, lf.flipperId));
     const cardTxt = cardLabel({suit:lf.suit, rank:lf.rank});
-    return `
-      <div class="turn-banner"><b>${chi} ha girato ${cardTxt}</b> — <b>${esc(nameOf(match,lf.pileAwardedTo))}</b> si prende il mazzetto: ${lf.pileSize} carte! 🎉</div>
-      <button class="btn-primary" style="width:100%;margin-bottom:12px;" onclick="continueAfterCavaCamisaFlip('${match.id}')">Continua</button>`;
+    return `<div class="turn-banner"><b>${chi} ha girato ${cardTxt}</b> — <b>${esc(nameOf(match,lf.pileAwardedTo))}</b> si prende il mazzetto: ${lf.pileSize} carte! 🎉</div>`;
   })() : '';
 
   const turnBanner = match.pendingReveal ? '' : `<div class="turn-bar ${isMyTurn?'mine':''}">${isMyTurn
@@ -5711,7 +5718,9 @@ function renderCavaCamisaMatch(match, claim){
   const myCards = (displayOwner && match.hands[displayOwner]) || [];
 
   const puoiTirare = isMyTurn && !match.pendingReveal;
-  const azioniBtn = `<button class="btn-primary" style="width:100%;margin-bottom:12px;" ${puoiTirare?'':'disabled'} onclick="cavaCamisaFlip('${match.id}','${flipperId}')">Tira una carta</button>`;
+  const azioniBtn = match.pendingReveal
+    ? `<button class="btn-primary" style="width:100%;margin-bottom:12px;" onclick="continueAfterCavaCamisaFlip('${match.id}')">Continua</button>`
+    : `<button class="btn-primary" style="width:100%;margin-bottom:12px;" ${puoiTirare?'':'disabled'} onclick="cavaCamisaFlip('${match.id}','${flipperId}')">Tira una carta</button>`;
 
   return `
     <div class="card">
@@ -10778,9 +10787,9 @@ function renderMatch(match, claim){
           <button class="btn-danger btn-small" onclick="abandonMatch()">Abbandona</button>
         </div>
       </div>
-      ${syncWarn}
       ${turnBar}
       ${renderTableSVG(match, cards, revealAll, myId)}
+      ${syncWarn}
       ${body}
     </div>
     ${renderLog(match)}
@@ -11988,15 +11997,15 @@ function renderBattleshipPlacement(match, myId, revealAll){
     <div class="toolbar"><span>Battaglia Navale · posiziona la flotta</span><button class="btn-danger btn-small" onclick="abandonMatch()">Abbandona</button></div>
     ${match.ready[myId] ? `<div class="turn-banner">Flotta pronta! Aspetta l'avversario…</div>` : `
     <div class="boardgame-layout">
+      <div class="boardgame-board-col">
+        ${grid}
+      </div>
       <div class="boardgame-info-col">
         <p class="hint">Scegli una nave, poi usa le frecce (o tocca la griglia) per posizionarla, quindi conferma.</p>
         ${shipRows}
         <div class="row-btns" style="margin:4px 0;">
           <button class="btn-secondary" onclick="bsSelectedHorizontal=!bsSelectedHorizontal; render(true)">Orientamento: ${bsSelectedHorizontal?'Orizzontale →':'Verticale ↓'}</button>
         </div>
-      </div>
-      <div class="boardgame-board-col">
-        ${grid}
         ${arrowsBlock}
         ${readyButtons}
       </div>
