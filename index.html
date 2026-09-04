@@ -326,6 +326,19 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
      comunque visibile senza scorrere. */
   .bj-table-svg-wrap{max-height:15vh !important;margin:2px 0 !important;}
   .bj-table-svg-wrap svg{max-height:15vh !important;width:auto;}
+  /* Poker: il tavolo ovale (largo, non quadrato) affiancato alla mano invece
+     che impilato sopra — e' proprio in orizzontale, con piu' larghezza che
+     altezza, che un tavolo ovale ha piu' senso e ci sta meglio. */
+  .poker-table-layout{display:flex;flex-direction:row;align-items:flex-start;gap:10px;}
+  .poker-table-col{flex:1.2;min-width:0;}
+  .poker-table-col .table-wrap{margin:0;}
+  .poker-table-col svg{max-height:30vh;width:auto;}
+  /* Il margine sottratto e' generoso apposta: sopra a questa riga possono
+     esserci una o due fasce di stato (turno, ultima azione, "Showdown!"),
+     e la larghezza non e' nota qui — meglio scorrere un po' internamente
+     in piu' che rischiare di far scorrere l'intera pagina. */
+  .poker-info-col{flex:1;min-width:0;max-height:calc(100vh - 175px);overflow-y:auto;}
+  .poker-info-col h3{margin-top:2px;}
 }
 .risiko-rotate-hint{ display:none; }
 @media (orientation: landscape){
@@ -11277,13 +11290,36 @@ function pokerCardBack(w,h){
   return `<span class="hand-card" style="width:${w}px;height:${h}px;display:inline-block;"><img src="${POKER_BACK_IMG}" style="width:100%;height:100%;object-fit:contain;border-radius:6px;" onerror="this.parentElement.style.cssText+='background:#16261F;border:1px solid #3C5A4C;';this.remove();"/></span>`;
 }
 
+// Tavolo ovale vero (non piu' un rettangolo arrotondato): i posti si
+// dispongono sul perimetro di un'ellisse, come un vero tavolo da poker
+// pieghevole. Il viewBox e' volutamente piu' largo che alto — proprio
+// perche' e' un ovale allungato, e' il gioco che ne approfitta di piu'
+// quando il telefono e' in orizzontale (piu' larghezza disponibile), ma
+// resta comunque un ovale corretto anche in verticale, solo piu' piccolo.
+function pokerTableConfig(n){
+  if(n<=4) return {VBW:580, VBH:330, rx:240, ry:118, avatarR:26, fs:1, centerHalf:44, cardScale:0.86};
+  if(n<=6) return {VBW:620, VBH:350, rx:258, ry:124, avatarR:24, fs:.95, centerHalf:42, cardScale:0.80};
+  return {VBW:660, VBH:370, rx:275, ry:130, avatarR:22, fs:.9, centerHalf:40, cardScale:0.74};
+}
+// Distribuisce n posti sul perimetro di un'ellisse (rx,ry), partendo dal
+// punto piu' basso (theta=0, dove rotateIdsForMe mette sempre "io") e
+// proseguendo in senso orario — stessa convenzione d'inizio del vecchio
+// schema rettangolare.
+function ellipseSeatLayout(rx, ry, n){
+  const points = [];
+  for(let i=0;i<n;i++){
+    const theta = (i/n) * 2*Math.PI;
+    points.push({ x: rx*Math.sin(theta), y: ry*Math.cos(theta) });
+  }
+  return points;
+}
 function pokerTableSVG(match, myId){
   const ids = rotateIdsForMe(match.turnOrder, myId);
   const n = ids.length;
-  const C = tableConfig(n);
-  const VB = C.VB, fs = C.fs;
-  const cx = VB/2, cy = VB/2, half = C.half, avatarR = C.avatarR;
-  const layout = rectSeatLayout(half, half, n);
+  const C = pokerTableConfig(n);
+  const VBW = C.VBW, VBH = C.VBH, fs = C.fs;
+  const cx = VBW/2, cy = VBH/2, rx = C.rx, ry = C.ry, avatarR = C.avatarR;
+  const layout = ellipseSeatLayout(rx, ry, n);
 
   let seats = '';
   ids.forEach((pid,i)=>{
@@ -11303,7 +11339,7 @@ function pokerTableSVG(match, myId){
     let statusTag = player.eliminated ? ' ☠' : (isFolded ? ' (passa)' : (isAllIn ? ' ALL-IN' : ''));
     const label = esc(nm) + (isMe?' (tu)':(player.isBot?' ᴀɪ':'')) + statusTag;
     const pillW = Math.max(52*fs, label.length*7*fs + 16);
-    const lx = Math.max(pillW/2+3, Math.min(VB-pillW/2-3, x));
+    const lx = Math.max(pillW/2+3, Math.min(VBW-pillW/2-3, x));
     const ly = nameY;
     const dim = player.eliminated || isFolded;
 
@@ -11341,18 +11377,47 @@ function pokerTableSVG(match, myId){
     : `<span style="color:#6C8078;font-size:${9*fs}px;font-family:'IBM Plex Mono',monospace;">in attesa…</span>`;
   const pot = pokerTotalPotNow(match);
 
+  // Scritte "FLOP · TURN · RIVER" stampate sul feltro attorno al centro,
+  // come su un vero tavolo da poker — quattro copie ruotate a raggiera
+  // invece di una singola scritta curva, per restare leggibili anche
+  // piccole (un unico arco lungo sarebbe stato illeggibile su un ovale
+  // cosi' schiacciato).
+  const felttextR = Math.min(rx,ry)*0.62;
+  const felttext = [0,90,180,270].map(ang => {
+    const rad = ang*Math.PI/180;
+    const tx = cx + felttextR*Math.sin(rad), ty = cy - felttextR*Math.cos(rad)*(ry/rx);
+    return `<text x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" text-anchor="middle" font-size="${7*fs}" font-weight="700" letter-spacing="1.5" fill="#4A6B5B" font-family="'IBM Plex Mono',monospace" transform="rotate(${ang} ${tx.toFixed(1)} ${ty.toFixed(1)})">FLOP · TURN · RIVER</text>`;
+  }).join('');
+
+  // "Portabicchieri" decorativi lungo il bordo, come su un vero tavolo
+  // pieghevole da poker: solo estetica, nessuna interazione.
+  const railPad = 22*fs;
+  const cupR = 7*fs;
+  let cupHolders = '';
+  const cupCount = n<=4 ? 6 : (n<=6 ? 8 : 9);
+  for(let i=0;i<cupCount;i++){
+    const theta = (i/cupCount) * 2*Math.PI + Math.PI/cupCount;
+    const cxp = cx + (rx+railPad*0.6)*Math.sin(theta), cyp = cy - (ry+railPad*0.6)*Math.cos(theta);
+    cupHolders += `<circle cx="${cxp.toFixed(1)}" cy="${cyp.toFixed(1)}" r="${cupR}" fill="#0E1A15" stroke="#3C5A4C" stroke-width="1"/>`;
+  }
+
   const tableDefs = `
     <defs>
       <linearGradient id="feltGradPoker" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" stop-color="#274539"/><stop offset="60%" stop-color="#1D3730"/><stop offset="100%" stop-color="#132520"/>
       </linearGradient>
+      <linearGradient id="railGradPoker" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#241A10"/><stop offset="100%" stop-color="#120C08"/>
+      </linearGradient>
     </defs>`;
-  const outerPad = 30*fs, feltR = 20*fs;
   return `
     <div class="table-wrap">
-      <svg viewBox="0 0 ${VB} ${VB}" width="100%" style="max-width:420px;aspect-ratio:1/1;display:block;height:auto;">
+      <svg viewBox="0 0 ${VBW} ${VBH}" width="100%" style="max-width:560px;aspect-ratio:${(VBW/VBH).toFixed(3)};display:block;height:auto;">
         ${tableDefs}
-        <rect x="${cx-half-outerPad}" y="${cy-half-outerPad}" width="${2*(half+outerPad)}" height="${2*(half+outerPad)}" rx="${feltR}" fill="url(#feltGradPoker)" stroke="#4A6B5B" stroke-width="2"/>
+        <ellipse cx="${cx}" cy="${cy}" rx="${rx+railPad}" ry="${ry+railPad}" fill="url(#railGradPoker)" stroke="#0A0704" stroke-width="2"/>
+        ${cupHolders}
+        <ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="url(#feltGradPoker)" stroke="#4A6B5B" stroke-width="2"/>
+        ${felttext}
         <text x="${cx}" y="${cy-58*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9*fs}" fill="#D4AF6A">Piatto: ${pot}</text>
         <foreignObject x="${cx-80*fs}" y="${cy-48*fs}" width="${160*fs}" height="${104*fs}">
           <div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;justify-content:center;align-items:center;height:100%;">${communityHtml}</div>
@@ -11443,9 +11508,13 @@ function renderPokerMatch(match, claim){
       ${pokerScoreBar(match)}
       <div class="turn-bar mine">Mano conclusa</div>
       ${actionBanner}
-      ${tableSvg}
-      ${showdownHtml}
-      <button class="btn-primary" style="width:100%;margin-top:10px;" onclick="continueAfterPokerHand('${match.id}')">Prossima mano</button>
+      <div class="poker-table-layout">
+        <div class="poker-table-col">${tableSvg}</div>
+        <div class="poker-info-col">
+          ${showdownHtml}
+          <button class="btn-primary" style="width:100%;margin-top:10px;" onclick="continueAfterPokerHand('${match.id}')">Prossima mano</button>
+        </div>
+      </div>
     </div>`;
   }
 
@@ -11499,10 +11568,14 @@ function renderPokerMatch(match, claim){
       ${pokerScoreBar(match)}
       ${turnBanner}
       ${actionBanner}
-      ${tableSvg}
-      <h3 style="margin:10px 0 4px;">${revealAll?'':'La tua mano'}</h3>
-      ${handHtml}
-      ${actionButtons}
+      <div class="poker-table-layout">
+        <div class="poker-table-col">${tableSvg}</div>
+        <div class="poker-info-col">
+          <h3 style="margin:10px 0 4px;">${revealAll?'':'La tua mano'}</h3>
+          ${handHtml}
+          ${actionButtons}
+        </div>
+      </div>
     </div>`;
 }
 
