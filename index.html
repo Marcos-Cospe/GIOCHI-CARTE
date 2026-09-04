@@ -250,6 +250,12 @@ body.force-share.in-match #sync-panel{display:block !important;}
   50%{filter:drop-shadow(0 0 10px rgba(212,175,106,1));}
 }
 .played-win{animation:playedIn .34s cubic-bezier(.2,.9,.3,1.2) both, winGlow 1.3s ease-in-out .34s infinite;}
+/* Solo il bagliore continuo, senza il "pop" d'ingresso: per una carta che
+   ha gia' vinto la presa ma non e' quella appena giocata in QUESTO render
+   (le altre carte della stessa presa, gia' sul tavolo da un turno
+   precedente) — altrimenti rifarebbe il pop ad ogni azione altrui, dando
+   l'impressione di uno sfarfallio continuo. */
+.win-glow{animation:winGlow 1.3s ease-in-out infinite;}
 
 @keyframes badgePop{
   0%{transform:scale(1);}
@@ -258,17 +264,14 @@ body.force-share.in-match #sync-panel{display:block !important;}
 }
 .badge-done{animation:badgePop .5s ease-out;transform-box:fill-box;transform-origin:center;}
 
-/* Carte in mano: entrata a ventaglio + reattività al tocco */
-@keyframes dealIn{
-  0%{opacity:0;transform:translateY(16px) rotate(-4deg) scale(.9);}
-  100%{opacity:1;transform:none;}
-}
-.hand .hand-card{animation:dealIn .34s ease-out both;}
-.hand .hand-card:nth-child(1){animation-delay:.02s}
-.hand .hand-card:nth-child(2){animation-delay:.08s}
-.hand .hand-card:nth-child(3){animation-delay:.14s}
-.hand .hand-card:nth-child(4){animation-delay:.20s}
-.hand .hand-card:nth-child(5){animation-delay:.26s}
+/* Carte in mano: reattività al tocco. NB: niente animazione di "entrata"
+   qui — ogni azione di un QUALSIASI giocatore rifà il render dell'intera
+   schermata (vedi render()), quindi una animazione legata alla classe CSS
+   (non a "questa carta è davvero nuova") riparte da zero ad ogni singolo
+   tocco altrui, anche sulle carte gia' in mano da un pezzo: e' esattamente
+   quello che si vedeva come uno sfarfallio continuo. Il vero ingresso delle
+   carte, quando vengono davvero distribuite, lo fa gia' l'animazione
+   dedicata (cardFxDealTable, con le carte che volano dal centro al posto). */
 .hand button.hand-card{transition:transform .16s cubic-bezier(.2,.9,.3,1.3);}
 .hand button.hand-card:active{transform:translateY(-10px) scale(1.06);}
 
@@ -3971,6 +3974,12 @@ function renderTableSVG(match, cards, revealAll, myId){
         const px = cx + nx*playedDist;
         const py = cy + ny*playedDist;
         const isWin = match.trick.resolved && match.trick.winnerId===pid;
+        // Il "pop" d'ingresso va rifatto SOLO per la carta appena giocata in
+        // questo render, non per quelle gia' sul tavolo da un turno
+        // precedente della stessa presa — altrimenti ogni mossa altrui le
+        // farebbe ripartire tutte da capo, con un effetto di sfarfallio.
+        const isLatestPlay = match.trick.plays[match.trick.plays.length-1]===playEntry;
+        const cardAnimClass = isLatestPlay ? ('played-in'+(isWin?' played-win':'')) : (isWin?'win-glow':'');
         const tilt = (Math.atan2(ny,nx)*180/Math.PI + 90) * 0.12; // leggera inclinazione, cresce con la distanza dal centro-alto
         const src = cardSrc(playEntry.card.suit, playEntry.card.rank);
         const aceTag = playEntry.forcedValue
@@ -3978,7 +3987,7 @@ function renderTableSVG(match, cards, revealAll, myId){
           : '';
         playedCardSvg = `
           <g transform="translate(${px},${py}) rotate(${tilt})" style="filter:drop-shadow(0 2px 4px rgba(0,0,0,.4));">
-            <g class="played-in ${isWin?'played-win':''}">
+            <g class="${cardAnimClass}">
               <rect x="${-cardW/2}" y="${-cardH/2}" width="${cardW}" height="${cardH}" rx="${3*cardSc}" fill="#F1ECE1" stroke="#8C7647" stroke-width="0.8"/>
               <image href="${src}" x="${-cardW/2}" y="${-cardH/2}" width="${cardW}" height="${cardH}" preserveAspectRatio="xMidYMid slice" clip-path="url(#tbl-cardclip)"/>
             </g>
@@ -4728,11 +4737,16 @@ function renderBriscolaTableSVG(match, myId){
       const px = cx + nx*playedDist;
       const py = cy + ny*playedDist;
       const isWin = match.trick.resolved && match.trick.winnerId===pid;
+      // Vedi commento gemello nella funzione tavolo di Scopa/Vecia/Bisca:
+      // il pop d'ingresso solo per la carta appena giocata in questo
+      // render, non per quelle gia' sul tavolo da un turno precedente.
+      const isLatestPlay = match.trick.plays[match.trick.plays.length-1]===playEntry;
+      const cardAnimClass = isLatestPlay ? ('played-in'+(isWin?' played-win':'')) : (isWin?'win-glow':'');
       const tilt = (Math.atan2(ny,nx)*180/Math.PI + 90) * 0.12;
       const src = cardSrc(playEntry.card.suit, playEntry.card.rank);
       playedCardSvg = `
         <g transform="translate(${px},${py}) rotate(${tilt})" style="filter:drop-shadow(0 2px 4px rgba(0,0,0,.4));">
-          <g class="played-in ${isWin?'played-win':''}">
+          <g class="${cardAnimClass}">
             <rect x="${-cardW/2}" y="${-cardH/2}" width="${cardW}" height="${cardH}" rx="${3*cardSc}" fill="#F1ECE1" stroke="#8C7647" stroke-width="0.8"/>
             <image href="${src}" x="${-cardW/2}" y="${-cardH/2}" width="${cardW}" height="${cardH}" preserveAspectRatio="xMidYMid slice" clip-path="url(#brisc-cardclip)"/>
           </g>
