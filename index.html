@@ -321,12 +321,11 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
   .boardgame-info-col h3{margin-top:4px;}
   .bs-grids-row{display:flex;flex-direction:row;gap:10px;}
   .bs-grids-row > div{flex:1;min-width:0;}
-  /* Black Jack: banco + mia mano a sinistra, avversari in colonna compatta
-     a destra invece che impilati sotto — usa la larghezza che avanza in
-     orizzontale invece di continuare a scendere in altezza. */
-  .bj-table-layout{display:flex;flex-direction:row;gap:10px;align-items:flex-start;}
-  .bj-table-main{flex:1.3;min-width:0;}
-  .bj-table-others{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;}
+  /* Black Jack: il tavolo SVG (gia' pensato "largo, poco alto") si tiene
+     piu' basso quando l'altezza scarseggia, cosi' la mia mano sotto resta
+     comunque visibile senza scorrere. */
+  .bj-table-svg-wrap{max-height:15vh !important;margin:2px 0 !important;}
+  .bj-table-svg-wrap svg{max-height:15vh !important;width:auto;}
 }
 .risiko-rotate-hint{ display:none; }
 @media (orientation: landscape){
@@ -396,10 +395,6 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
      verticale non basta per mostrarlo senza scroll. */
   body.in-match .device-stats-summary{display:none;}
   body.in-match .bj-seats-hint{display:none;}
-  /* Selettore posto al tavolo (Black Jack): comodo ma non indispensabile per
-     giocare (i bot occupano comunque i posti liberi), si nasconde quando lo
-     spazio verticale e' troppo poco per mostrarlo senza scroll. */
-  body.in-match .bj-seats-row{display:none;}
   body.in-match button{padding:9px 12px;}
   body.in-match .btn-small{padding:6px 9px;}
 }
@@ -12730,28 +12725,16 @@ function bjCompactHandsHTML(match, forPlayerId){
     </div>`;
   }).join('');
 }
-function bjSeatsRowHTML(match, myId){
-  if(!match.seatSlots || !match.seatSlots.includes(null)) return ''; // tavolo al completo: nulla da mostrare
-  const mySlot = bjSeatOf(match, myId);
-  const seats = match.seatSlots.map((occId,i)=>{
-    if(occId){
-      const p = match.players.find(x=>x.id===occId);
-      const mine = occId===myId;
-      return `<span class="pill" style="${mine?'border-color:#D4AF6A;':''}">${i+1}: ${esc(p.name)}${p.isBot?' 🤖':''}</span>`;
-    }
-    return `<button class="btn-secondary btn-small" onclick="bjChangeSeat('${match.id}','${myId}',${i})">Posto ${i+1}: libero</button>`;
-  }).join(' ');
-  return `<div class="bj-seats-row" style="margin-bottom:8px;">
-    <p class="hint bj-seats-hint" style="margin-bottom:4px;">Il tavolo (tocca un posto libero per spostarti):</p>
-    <div class="row-pills" style="flex-wrap:wrap;gap:5px;">${seats}</div>
-  </div>`;
-}
 function bjBettingPanel(match, myId){
   const player = match.players.find(p=>p.id===myId);
   const chipRow = BJ_CHIP_PRESETS.map(v=>`<button class="btn-secondary btn-small" onclick="bjCurrentBet=Math.min(bjCurrentBet+${v}, ${player.chips}); sndChip(); render(true)">+${v}</button>`).join('');
   const statsHtml = match.mode==='free' && cachedBlackjackStats ? deviceStatsSummaryHTML(cachedBlackjackStats) : '';
+  // Il selettore posto testuale non serve piu': i cerchi vuoti sul tavolo
+  // qui sopra sono gia' cliccabili per spostarsi (stesso bjChangeSeat).
+  const seatHint = (match.seatSlots && match.seatSlots.includes(null))
+    ? `<p class="hint bj-seats-hint" style="margin:2px 0 6px;">Tocca un posto libero sul tavolo per spostarti.</p>` : '';
   return `
-    ${bjSeatsRowHTML(match, myId)}
+    ${seatHint}
     <p class="hint" style="margin:4px 0;">Fiches disponibili: <b>${player.chips}</b></p>
     <div class="row-btns" style="flex-wrap:wrap;">${chipRow}</div>
     <div class="turn-banner" style="text-align:center;margin-top:6px;">Puntata: <b>${bjCurrentBet}</b></div>
@@ -12833,6 +12816,106 @@ function bjEndPanel(match){
     ${ranking.map((p,i)=>`<div class="rank-row ${(match.tieWinners?match.tieWinners.includes(p.id):p.id===match.winnerId)?'win':''}"><span>${i+1}. ${esc(p.name)}${p.isBot?' 🤖':''}</span><span>${p.chips} fiches</span></div>`).join('')}
     <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="backToLobbyFromEnd()">Torna al menu</button>`;
 }
+// Tavolo da Black Jack "a mezzaluna" come un vero tavolo da casino': bordo
+// dritto in alto (dove sta il banco), bordo curvo in basso dove si
+// affacciano fino a 7 caselle di puntata. E' una vista d'insieme — le azioni
+// vere e proprie (Carta/Stai/Raddoppia/Dividi) restano nei pannelli sotto,
+// dove c'e' spazio per leggerle bene anche su telefono; qui invece si vede
+// subito chi ha puntato cosa e con quali carte, come guardando il tavolo
+// dall'alto. Niente "Assicurazione" stampata sul feltro: non e' una
+// puntata che questo gioco offre, e stamparla in tavolo lascerebbe credere
+// il contrario.
+function bjTableSVG(match, myId){
+  const compact = window.innerHeight < 520;
+  const VB_W = 420, VB_H = 220;
+  const cx = VB_W/2, cyTop = 56, rx = 192, ry = 144;
+  const rimPad = 11;
+  // Flag di rotazione dell'arco a 0 (antiorario, da sinistra a destra): con
+  // l'asse y che cresce verso il basso, e' questo verso — non l'orario — a
+  // far passare la curva per il PUNTO PIU' BASSO (il fondo della cupola),
+  // che e' la forma voluta. Il verso opposto disegnerebbe la cupola verso
+  // l'alto, quasi del tutto fuori dal viewBox e percio' invisibile.
+  const feltPath = `M${(cx-rx).toFixed(1)},${cyTop} A${rx},${ry} 0 0 0 ${(cx+rx).toFixed(1)},${cyTop} Z`;
+  const rimPath = `M${(cx-rx-rimPad).toFixed(1)},${(cyTop-rimPad).toFixed(1)} A${rx+rimPad},${ry+rimPad} 0 0 0 ${(cx+rx+rimPad).toFixed(1)},${(cyTop-rimPad).toFixed(1)} L${(cx-rx-rimPad).toFixed(1)},${(cyTop-rimPad).toFixed(1)} Z`;
+  const textRx = rx*0.60, textRy = ry*0.58;
+  const textPath = `M${(cx-textRx).toFixed(1)},${cyTop} A${textRx.toFixed(1)},${textRy.toFixed(1)} 0 0 0 ${(cx+textRx).toFixed(1)},${cyTop}`;
+
+  const n = BJ_MAX_PLAYERS;
+  // Gradi totali coperti dai posti lungo il bordo curvo: deve restare
+  // abbastanza stretto da lasciare spazio, anche ai posti agli estremi
+  // (i piu' vicini al bordo dritto in alto, dove il raggio verticale
+  // disponibile e' minimo), alla riga di carte sopra il cerchio — altrimenti
+  // finiscono a "galleggiare" fuori dal tavolo invece che sopra la propria fiche.
+  const angleSpan = 120;
+  const seatInset = 0.90;
+  const mySlot = myId ? bjSeatOf(match, myId) : -1;
+  const seatR = compact ? 15 : 18;
+  const cardW = compact ? 17 : 20, cardH = compact ? 24 : 28;
+
+  let seatsHtml = '';
+  for(let slot=0; slot<n; slot++){
+    const t = (slot/(n-1) - 0.5) * angleSpan;
+    const rad = t*Math.PI/180;
+    const x = cx + Math.sin(rad)*rx*seatInset;
+    const y = cyTop + Math.cos(rad)*ry*seatInset;
+    const occId = match.seatSlots[slot];
+    const player = occId ? match.players.find(p=>p.id===occId) : null;
+    const isMe = occId===myId;
+    const bet = occId ? (match.bets[occId]||0) : 0;
+    const hands = occId ? bjPlayerHands(match, occId) : [];
+    const cards = hands.length ? hands.flatMap(h=>h.cards) : [];
+    const clickable = !occId && mySlot>=0 && match.phase==='betting';
+    const ringColor = isMe ? '#D4AF6A' : (occId ? '#8FA89C' : '#4A6B5B');
+    const ringWidth = isMe ? 2.4 : 1.6;
+
+    const chipHtml = bet>0 ? `<foreignObject x="${(x-seatR*0.8).toFixed(1)}" y="${(y-seatR*0.8).toFixed(1)}" width="${(seatR*1.6).toFixed(1)}" height="${(seatR*1.6).toFixed(1)}"><div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;width:100%;height:100%;">${pokerChipHTML(bet, seatR*1.6)}</div></foreignObject>` : '';
+    const cardsW = Math.max(cardW*1.1, cards.length*cardW*0.62 + cardW*0.5);
+    // Non deve mai finire sopra il bordo dritto del tavolo (cyTop): senza
+    // questa rete di sicurezza, i posti piu' vicini agli angoli finivano con
+    // le carte "staccate" a galleggiare fuori dal feltro.
+    const cardsY = Math.max(cyTop+3, y-seatR-cardH-3);
+    const cardsHtml = cards.length ? `<foreignObject x="${(x-cardsW/2).toFixed(1)}" y="${cardsY.toFixed(1)}" width="${cardsW.toFixed(1)}" height="${cardH}"><div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;justify-content:center;">${cards.map(c=>pokerMiniCard(c,cardW,cardH)).join('')}</div></foreignObject>` : '';
+    const nameLabel = player ? (player.name.length>9 ? player.name.slice(0,8)+'…' : player.name) : ('Posto '+(slot+1));
+    const nameColor = player ? (isMe?'#D4AF6A':'#E9E3D3') : '#6C8078';
+
+    seatsHtml += `
+      <g ${clickable?`onclick="bjChangeSeat('${match.id}','${myId}',${slot})" style="cursor:pointer;"`:''}>
+        ${cardsHtml}
+        <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${seatR}" fill="rgba(10,20,16,0.35)" stroke="${ringColor}" stroke-width="${ringWidth}"/>
+        ${!player ? `<text x="${x.toFixed(1)}" y="${(y+3).toFixed(1)}" text-anchor="middle" font-size="${(seatR*0.62).toFixed(1)}" fill="#6C8078" font-family="'IBM Plex Mono',monospace">${slot+1}</text>` : ''}
+        ${chipHtml}
+        <text x="${x.toFixed(1)}" y="${(y+seatR+11).toFixed(1)}" text-anchor="middle" font-size="9.5" font-weight="600" fill="${nameColor}" font-family="'Fraunces',serif">${esc(nameLabel)}${player && player.isBot ? ' ᴀɪ':''}</text>
+      </g>`;
+  }
+
+  const dealerHidden = match.phase==='playing' && !match.dealerRevealed;
+  const dealerCards = match.dealerHand || [];
+  const dealerLabel = dealerCards.length ? (dealerHidden ? bjHandTotalLabel([dealerCards[0]])+' + ?' : bjHandTotalLabel(dealerCards)) : '';
+  const dealerCardW = compact ? 26 : 30, dealerCardH = compact ? 37 : 42;
+  const dealerCardsHtml = dealerCards.length ? `<foreignObject x="${(cx-dealerCardW*2.2).toFixed(1)}" y="${(cyTop-dealerCardH-6).toFixed(1)}" width="${(dealerCardW*4.4).toFixed(1)}" height="${dealerCardH}"><div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;justify-content:center;gap:2px;">${dealerCards.map((c,i)=> i===1 && dealerHidden ? pokerCardBack(dealerCardW,dealerCardH) : pokerMiniCard(c,dealerCardW,dealerCardH)).join('')}</div></foreignObject>` : '';
+
+  return `<div class="bj-table-svg-wrap" style="display:flex;justify-content:center;margin:6px 0;max-height:min(230px, 30vh);">
+    <svg viewBox="0 0 ${VB_W} ${VB_H}" width="100%" style="max-width:440px;max-height:min(230px, 30vh);width:auto;display:block;">
+      <defs>
+        <linearGradient id="bjRimGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#5C3A1C"/><stop offset="100%" stop-color="#2A1A0C"/>
+        </linearGradient>
+        <linearGradient id="bjFeltGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stop-color="#274539"/><stop offset="60%" stop-color="#1D3730"/><stop offset="100%" stop-color="#132520"/>
+        </linearGradient>
+        <path id="bj-arc-text-path" d="${textPath}"/>
+      </defs>
+      <path d="${rimPath}" fill="url(#bjRimGrad)" stroke="#1A0F06" stroke-width="1.5"/>
+      <path d="${feltPath}" fill="url(#bjFeltGrad)" stroke="#4A6B5B" stroke-width="1.5"/>
+      <text font-size="12" font-weight="700" fill="#D4AF6A" font-family="'Fraunces',serif" opacity="0.85" letter-spacing="1">
+        <textPath href="#bj-arc-text-path" startOffset="50%" text-anchor="middle">BLACKJACK PAGA 3 A 2</textPath>
+      </text>
+      ${dealerCardsHtml}
+      ${dealerLabel ? `<text x="${cx}" y="${cyTop-dealerCardH-11}" text-anchor="middle" font-size="10" fill="#B9C4BC" font-family="'IBM Plex Mono',monospace">Banco: ${dealerLabel}</text>` : `<text x="${cx}" y="${cyTop-14}" text-anchor="middle" font-size="10" fill="#6C8078" font-family="'IBM Plex Mono',monospace">Banco</text>`}
+      ${seatsHtml}
+    </svg>
+  </div>`;
+}
 function renderBlackjackMatch(match, claim){
   const myId = claim.type==='seat' ? claim.playerId : null;
   const revealAll = claim.type==='all';
@@ -12861,12 +12944,11 @@ function renderBlackjackMatch(match, claim){
     return `<div class="card">
       <div class="toolbar"><span>Black Jack · ${modeLabel}</span>${tableExitButton(match, myId)}</div>
       ${scoreBar}
+      ${bjTableSVG(match, myId)}
       ${bjBettingPanel(match, myId)}
     </div>`;
   }
   // fasi 'playing', 'dealer', 'result': mostro il tavolo con banco e tutte le mani
-  const dealerHidden = match.phase==='playing' && !match.dealerRevealed;
-  const dealerLabel = dealerHidden ? bjHandTotalLabel([match.dealerHand[0]])+' + ?' : bjHandTotalLabel(match.dealerHand);
   const turnBanner = match.phase==='playing'
     ? (match.currentPlayerId===myId || revealAll ? `<div class="turn-bar mine">► TOCCA A ${revealAll?esc(nameOf(match,match.currentPlayerId)):'TE'}</div>` : `<div class="turn-bar">Tocca a <b>${esc(nameOf(match,match.currentPlayerId))}</b> <button class="refresh-mini" onclick="forceResync()" title="Aggiorna">⟳</button></div>`)
     : (match.phase==='dealer' ? `<div class="turn-banner" style="text-align:center;">Il banco gioca…</div>` : '');
@@ -12877,26 +12959,19 @@ function renderBlackjackMatch(match, claim){
   const myHandHtml = myId && bjPlayerHands(match,myId).length
     ? `<div style="margin:2px 0;"><div style="font-weight:600;font-size:13px;">${esc(nameOf(match,myId))}</div>${bjPlayerHandsHTML(match, myId, myId, match.dealerRevealed)}</div>`
     : '';
-  const othersHtml = match.turnOrder.filter(id=>id!==myId).map(id=>{
-    if(!bjPlayerHands(match,id).length) return '';
-    return bjCompactHandsHTML(match, id);
-  }).join('');
-  const dealerBlock = `<div style="margin:2px 0;">
-      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-        <span style="font-weight:600;font-size:13px;">Banco</span>
-        <span class="hint" style="margin:0;">${dealerLabel}</span>
-      </div>
-      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:2px;">${bjCardsHTML(match.dealerHand, dealerHidden)}</div>
-    </div>`;
+  // Il tavolo SVG mostra gia' banco, puntate e carte di tutti i posti: nelle
+  // fasi 'playing'/'dealer' sostituisce sia il vecchio blocco testuale del
+  // banco sia l'elenco compatto degli avversari (ridondante con le caselle
+  // del tavolo), lasciando spazio verticale solo per la MIA mano, l'unica
+  // che serve leggere a piena grandezza per decidere la mossa.
+  const tableSvgHtml = bjTableSVG(match, myId);
   return `<div class="card">
     <div class="toolbar"><span>Black Jack · ${modeLabel}</span>${tableExitButton(match, myId)}</div>
     ${scoreBar}
     ${turnBanner}
-    ${match.phase==='result' ? `${dealerBlock}${bjResultPanel(match, myId)}` : `
-    <div class="bj-table-layout">
-      <div class="bj-table-main">${dealerBlock}${myHandHtml}</div>
-      ${othersHtml ? `<div class="bj-table-others">${othersHtml}</div>` : ''}
-    </div>`}
+    ${match.phase==='result' ? `${tableSvgHtml}${bjResultPanel(match, myId)}` : `
+    ${tableSvgHtml}
+    ${myHandHtml}`}
   </div>`;
 }
 setInterval(()=>{
