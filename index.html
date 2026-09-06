@@ -117,12 +117,15 @@ input[type=number]{font-family:'IBM Plex Mono',monospace;text-align:center;}
 .hand{display:flex;flex-wrap:wrap;gap:8px;}
 .hand-grid6{display:grid;grid-template-columns:repeat(6, 1fr);gap:4px;overflow-x:visible;}
 .hand-card{display:inline-flex;padding:0;border-radius:8px;border:none;background:none;cursor:pointer;line-height:0;}
-/* .45 rendeva le proprie carte poco leggibili (contro il verde scuro del
-   tavolo) proprio quando non e' il proprio turno — cioe' il momento in cui
-   un giocatore guarda piu' spesso la propria mano per pianificare la
-   prossima mossa. Restano visibilmente "non toccabili ora" (cursore
-   apposito) ma senza sacrificare la leggibilita'. */
-.hand-card.disabled{opacity:.85;cursor:not-allowed;}
+/* Le PROPRIE carte restano sempre a piena luminosita', anche quando non e'
+   il proprio turno e non sono percio' toccabili in questo momento — sono
+   comunque le carte del giocatore, che deve poterle leggere bene in ogni
+   momento per pianificare la prossima mossa (solo il cursore cambia, a
+   segnalare che ora non sono cliccabili). ".disabled" resta invece per le
+   mani ALTRUI mostrate solo a scopo di riferimento (visione condivisa
+   "tutti visibili"): quelle si possono attenuare, non sono le tue. */
+.hand-card.waiting{cursor:default;}
+.hand-card.disabled{opacity:.55;cursor:not-allowed;}
 .hand-card.hidden-card{cursor:default;}
 .card-svg{display:block;filter:drop-shadow(0 2px 4px rgba(0,0,0,.35));}
 img.card-svg{width:52px;height:108px;object-fit:cover;border-radius:6px;background:#F1ECE1;}
@@ -4335,7 +4338,7 @@ function renderScopaMatch(match, claim){
       const clickable = isMyTurn && !match.pendingCapture;
       return clickable
         ? `<button class="hand-card ${SUIT_CLASS[c.suit]}" title="${cardLabel(c)}" onclick="playScopaCard('${match.id}','${handOwner}','${c.id}')">${cardFrontSVG(c)}</button>`
-        : `<span class="hand-card ${SUIT_CLASS[c.suit]} disabled" title="${cardLabel(c)}">${cardFrontSVG(c)}</span>`;
+        : `<span class="hand-card ${SUIT_CLASS[c.suit]} waiting" title="${cardLabel(c)}">${cardFrontSVG(c)}</span>`;
     }).join('')
   }</div>` : `<p class="hint" style="margin:6px 0 0;">Mano vuota, aspetta il prossimo giro di carte.</p>`;
 
@@ -4928,7 +4931,7 @@ function renderBriscolaMatch(match, claim){
   const handHtml = hand.length ? `<div class="hand">${hand.map(c=>
       puoGiocare
         ? `<button class="hand-card ${SUIT_CLASS[c.suit]}" title="${cardLabel(c)}" onclick="playBriscolaCard('${match.id}','${displayOwner}','${c.id}')">${cardFrontSVG(c)}</button>`
-        : `<span class="hand-card ${SUIT_CLASS[c.suit]} disabled" title="${cardLabel(c)}">${cardFrontSVG(c)}</span>`
+        : `<span class="hand-card ${SUIT_CLASS[c.suit]} waiting" title="${cardLabel(c)}">${cardFrontSVG(c)}</span>`
     ).join('')}</div>` : `<p class="hint" style="margin:6px 0 0;">Mano vuota.</p>`;
 
   return `
@@ -5286,7 +5289,7 @@ function renderVeciaMatch(match, claim){
     ? `<div class="hand">${hand.map(c=>{
         const isMatched = matchedRank && c.rank===matchedRank;
         const style = isMatched ? 'box-shadow:0 0 0 3px #D4AF6A;border-radius:8px;transform:translateY(-4px);transition:transform .15s;' : '';
-        return `<span class="hand-card ${SUIT_CLASS[c.suit]} disabled" style="${style}" title="${cardLabel(c)}">${cardFrontSVG(c)}</span>`;
+        return `<span class="hand-card ${SUIT_CLASS[c.suit]} waiting" style="${style}" title="${cardLabel(c)}">${cardFrontSVG(c)}</span>`;
       }).join('')}</div>`
     : `<p class="hint" style="margin:6px 0 0;">Mano vuota — sei salvo! 🎉</p>`;
 
@@ -10532,7 +10535,7 @@ function renderUnoHand(match, myId){
     }
     const style = playable
       ? 'cursor:pointer;box-shadow:0 0 0 2px #D4AF6A;'
-      : 'opacity:0.55;cursor:default;';
+      : 'cursor:default;'; // e' la TUA mano: resta a piena luminosita' anche quando questa carta non e' giocabile ora
     return `<div class="hand-card" style="${style}border-radius:6px;" ${onclick?`onclick="${onclick}"`:''}>${unoCardSVG(c, 44, 62)}</div>`;
   }).join('');
   return `<div class="hand-grid6" style="margin-top:10px;">${cards}</div>`;
@@ -10861,7 +10864,7 @@ function renderHandsBlock(match, cards, revealAll, myId, opts){
           ? (isAssoDenari(c)
               ? `<button class="hand-card ${SUIT_CLASS[c.suit]}" title="${cardLabel(c)}" onclick="chooseAceValue('${match.id}','${pid}','${c.id}')">${cardFrontSVG(c)}</button>`
               : `<button class="hand-card ${SUIT_CLASS[c.suit]}" title="${cardLabel(c)}" onclick="playCard('${match.id}','${pid}','${c.id}')">${cardFrontSVG(c)}</button>`)
-          : `<span class="hand-card ${SUIT_CLASS[c.suit]} disabled" title="${cardLabel(c)}">${cardFrontSVG(c)}</span>`
+          : `<span class="hand-card ${SUIT_CLASS[c.suit]} ${isMe?'waiting':'disabled'}" title="${cardLabel(c)}">${cardFrontSVG(c)}</span>`
       ).join('')}</div>`;
     }
 
@@ -11327,7 +11330,7 @@ function renderScala40Match(match, claim){
   const handHtml = sortedHand.length ? `<div class="hand-grid6">${sortedHand.map(c=>{
     const sel = scala40Selected.has(c.id);
     const href = scala40ImageHref(c);
-    return `<span class="hand-card ${canAct?'':'disabled'}" style="${sel?'box-shadow:0 0 0 3px #D4AF6A;border-radius:8px;transform:translateY(-6px);':''}transition:transform .12s;" onclick="${canAct?`scala40ToggleCard('${c.id}')`:''}" title="${esc(scala40CardLabel(c))}">
+    return `<span class="hand-card ${canAct?'':'waiting'}" style="${sel?'box-shadow:0 0 0 3px #D4AF6A;border-radius:8px;transform:translateY(-6px);':''}transition:transform .12s;" onclick="${canAct?`scala40ToggleCard('${c.id}')`:''}" title="${esc(scala40CardLabel(c))}">
       <img src="${href}" style="width:52px;height:74px;object-fit:contain;" onerror="this.style.opacity=0.15"/>
     </span>`;
   }).join('')}</div>` : `<p class="hint">Mano vuota — hai chiuso! 🎉</p>`;
