@@ -117,7 +117,12 @@ input[type=number]{font-family:'IBM Plex Mono',monospace;text-align:center;}
 .hand{display:flex;flex-wrap:wrap;gap:8px;}
 .hand-grid6{display:grid;grid-template-columns:repeat(6, 1fr);gap:4px;overflow-x:visible;}
 .hand-card{display:inline-flex;padding:0;border-radius:8px;border:none;background:none;cursor:pointer;line-height:0;}
-.hand-card.disabled{opacity:.45;cursor:not-allowed;}
+/* .45 rendeva le proprie carte poco leggibili (contro il verde scuro del
+   tavolo) proprio quando non e' il proprio turno — cioe' il momento in cui
+   un giocatore guarda piu' spesso la propria mano per pianificare la
+   prossima mossa. Restano visibilmente "non toccabili ora" (cursore
+   apposito) ma senza sacrificare la leggibilita'. */
+.hand-card.disabled{opacity:.85;cursor:not-allowed;}
 .hand-card.hidden-card{cursor:default;}
 .card-svg{display:block;filter:drop-shadow(0 2px 4px rgba(0,0,0,.35));}
 img.card-svg{width:52px;height:108px;object-fit:cover;border-radius:6px;background:#F1ECE1;}
@@ -3582,7 +3587,13 @@ async function playCard(matchId, playerId, cardId, forcedValue){
 
 async function continueAfterTrick(matchId){
   const match = await getActiveMatch();
-  if(!match || !match.trick || !match.trick.resolved) return;
+  // "match.phase!=='play'" e' essenziale, non ridondante: il pulsante "Prossima
+  // presa"/"Vedi il risultato" e' visibile a TUTTI i giocatori del tavolo, quindi
+  // in una sala con piu' persone puo' capitare che piu' di uno lo tocchi per la
+  // stessa presa appena risolta. Senza questo controllo, chi arriva dopo
+  // rielaborerebbe la stessa fine-mano una seconda volta (vite perse doppie,
+  // voce di log duplicata) invece di trovare la fase gia' cambiata e non fare nulla.
+  if(!match || match.id!==matchId || match.phase!=='play' || !match.trick || !match.trick.resolved) return;
   const winnerId = match.trick.winnerId;
   const roundDone = match.trick.roundDoneNext;
   let ended = false;
@@ -4480,7 +4491,14 @@ async function playBriscolaCard(matchId, playerId, cardId){
 
 async function continueAfterBriscolaTrick(matchId){
   const match = await getActiveMatch();
-  if(!match || match.id!==matchId || !match.trick || !match.trick.resolved) return;
+  // "match.phase!=='playing'" e' essenziale, non ridondante: in una sala con piu'
+  // dispositivi ognuno tiene il proprio timer per questa stessa pausa (vedi
+  // scheduleBriscolaBotMove), quindi puo' capitare che un dispositivo veda ancora
+  // "trick.resolved" true quando legge lo stato — perche' finishBriscolaDeal() non
+  // lo azzera mai — anche se un ALTRO dispositivo ha gia' concluso la mano un istante
+  // prima. Senza questo controllo la mano verrebbe chiusa una seconda volta,
+  // incrementando "mani vinte" due volte per la stessa vittoria.
+  if(!match || match.id!==matchId || match.phase!=='playing' || !match.trick || !match.trick.resolved) return;
   const winnerId = match.trick.winnerId;
   // il vincitore della presa pesca per primo, poi gli altri PARTECIPANTI A QUESTA PRESA
   // in ordine di turno (chi aveva gia' esaurito le carte prima non pesca, non ha senso);
