@@ -8550,7 +8550,7 @@ function risikoShowDiceRoll(attackDice, defendDice, fast){
     const rowHTML = (label, dice, idPrefix) => `
       <div style="text-align:center;">
         <p style="color:#F1ECE1;font-size:13px;margin:0 0 8px;letter-spacing:0.5px;">${esc(label)}</p>
-        <div style="display:flex;gap:10px;justify-content:center;">
+        <div style="display:flex;gap:10px;justify-content:center;perspective:420px;">
           ${dice.map((v,i)=>`<div id="${idPrefix}${i}" style="transition:box-shadow 0.2s;border-radius:16px;">${risikoDieFaceSVG(1,52)}</div>`).join('')}
         </div>
       </div>`;
@@ -8565,6 +8565,15 @@ function risikoShowDiceRoll(attackDice, defendDice, fast){
     const tickMs = fast ? 45 : 80;
     const pauseMs = fast ? 250 : 900;
     const fadeMs = fast ? 0.15 : 0.3;
+    // I dadi non si limitano piu' a cambiare faccia a scatti: ruotano
+    // davvero nello spazio (rotateX/rotateY continui) mentre "rotolano", poi
+    // si fermano con un piccolo rimbalzo sulla faccia vera gia' calcolata —
+    // stessa capriola 3D delle carte in volo, applicata qui al dado intero.
+    const rollDuration = (maxTicks*tickMs)/1000;
+    allDice.forEach(d=>{
+      const el = document.getElementById(d.id);
+      if(el) gsap.to(el, { rotateX:360*(1+Math.random()), rotateY:360*(1+Math.random()), duration:rollDuration, ease:'none' });
+    });
     let ticks = 0;
     const rollInterval = setInterval(()=>{
       ticks++;
@@ -8576,7 +8585,10 @@ function risikoShowDiceRoll(attackDice, defendDice, fast){
         clearInterval(rollInterval);
         allDice.forEach(d=>{
           const el = document.getElementById(d.id);
-          if(el) el.innerHTML = risikoDieFaceSVG(d.finalValue, 52);
+          if(el){
+            el.innerHTML = risikoDieFaceSVG(d.finalValue, 52);
+            gsap.to(el, { rotateX:0, rotateY:0, duration:0.3, ease:'back.out(1.6)' });
+          }
         });
         // evidenzio i confronti vinti/persi (stessa logica di risikoDefend: a parita' vince il difensore)
         const pairs = Math.min(attackDice.length, defendDice.length);
