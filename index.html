@@ -12769,8 +12769,16 @@ function rouletteWheelSVG(spinning, resultNumber){
   }
   const outerBallR = R + rimW*0.55;
   const innerBallR = R*0.50;
-  return `<div style="display:flex;justify-content:center;margin:14px 0;">
-    <div style="position:relative;width:${size}px;height:${size}px;">
+  // La ruota e' vista di taglio, inclinata come un vero tavolo da roulette,
+  // invece che dritta dall'alto: un rotateX rigido su TUTTO l'assieme (le due
+  // SVG piu' la pallina), non un ricalcolo della fisica dello spin — la
+  // pallina resta posizionata con le stesse coordinate locali piatte
+  // (left/top dentro questo stesso contenitore), l'inclinazione la applica
+  // il browser un livello sopra, quindi il moto calcolato in
+  // activateRouletteSpinAnimation non cambia di una virgola.
+  return `<div style="position:relative;display:flex;justify-content:center;margin:14px 0;perspective:900px;">
+      <div style="position:absolute;left:50%;bottom:6px;width:${size*0.78}px;height:${size*0.16}px;transform:translateX(-50%);background:radial-gradient(ellipse at center, rgba(0,0,0,.45), transparent 72%);"></div>
+    <div style="position:relative;width:${size}px;height:${size}px;transform:rotateX(42deg);transform-origin:50% 88%;">
       <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="position:absolute;inset:0;">
         <defs>
           <radialGradient id="rg-rim" cx="35%" cy="35%" r="75%">
