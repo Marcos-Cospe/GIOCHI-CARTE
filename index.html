@@ -473,6 +473,12 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
 .card-fx-overlay{ position:fixed; inset:0; z-index:9999; pointer-events:none; display:flex; align-items:flex-end; justify-content:center; perspective:1100px; }
 @keyframes f4DropIn{ 0%{ transform:translateY(-260px); } 70%{ transform:translateY(6px); } 85%{ transform:translateY(-3px); } 100%{ transform:translateY(0); } }
 .f4-drop-in{ animation: f4DropIn 480ms cubic-bezier(.5,0,.7,1); transform-box: fill-box; transform-origin: center; }
+@keyframes bsHitFlash{ 0%{ transform:scale(0.4); opacity:0.85; } 100%{ transform:scale(1.7); opacity:0; } }
+.bs-hit-flash{ animation: bsHitFlash 420ms ease-out forwards; transform-box: fill-box; transform-origin: center; }
+@keyframes bsHitPop{ 0%{ transform:scale(0.2); } 55%{ transform:scale(1.4); } 100%{ transform:scale(1); } }
+.bs-hit-new{ animation: bsHitPop 320ms cubic-bezier(.3,1.4,.4,1); transform-box: fill-box; transform-origin: center; }
+@keyframes bsSplash{ 0%{ transform:scale(0.3); opacity:0.9; } 100%{ transform:scale(3); opacity:0; } }
+.bs-miss-new{ animation: bsSplash 550ms ease-out forwards; transform-box: fill-box; transform-origin: center; }
 .card-fx-flash{ position:absolute; inset:0; background:radial-gradient(circle at 50% 65%, rgba(212,175,106,0.30), rgba(10,20,16,0) 55%); }
 .card-fx-stage{ position:relative; width:130px; height:182px; margin-bottom:14vh; transform-style:preserve-3d; }
 .card-fx-main, .card-fx-ghost{
@@ -11952,6 +11958,11 @@ function bsGridHTML(board, opts){
   const colLabelW = 16;
   const totalW = colLabelW + BS_SIZE*(cellSize+gap);
   const totalH = cellSize+gap + BS_SIZE*(cellSize+gap);
+  // Ultimo colpo sparato su QUESTA griglia (puo' essere la propria, se e'
+  // stato l'avversario a colpire): serve solo per animare quella singola
+  // cella (impatto/splash), i colpi precedenti restano ai loro segni statici.
+  const lastCoord = opts.lastShotCoord || null;
+  const lastHit = !!opts.lastShotHit;
 
   let html = `<div style="position:relative;max-width:min(${totalW}px, 90vw, ${opts.vhBudget||32}vh);margin:0 auto;">`;
   html += `<div style="display:grid;grid-template-columns:${colLabelW}px repeat(${BS_SIZE},1fr);grid-template-rows:${cellSize}px repeat(${BS_SIZE},1fr);gap:${gap}px;">`;
@@ -12016,10 +12027,29 @@ function bsGridHTML(board, opts){
       const cx = colLabelW+gap + (c-1)*(cellSize+gap) + cellSize/2;
       const cy = cellSize+gap + ri*(cellSize+gap) + cellSize/2;
       const s = cellSize*0.28;
+      const isNew = lastHit && coord===lastCoord;
+      // Un colpo appena andato a segno ha in piu' un lampo d'esplosione dietro
+      // la X (si spegne da solo) e la X stessa "scatta" con un piccolo rimbalzo
+      // invece di comparire gia' ferma.
+      if(isNew) overlaySvg += `<circle class="bs-hit-flash" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(cellSize*0.42).toFixed(1)}" fill="#FF6B4A"/>`;
+      overlaySvg += `<g class="${isNew?'bs-hit-new':''}">`;
       overlaySvg += `<line x1="${(cx-s).toFixed(1)}" y1="${(cy-s).toFixed(1)}" x2="${(cx+s).toFixed(1)}" y2="${(cy+s).toFixed(1)}" stroke="#F1ECE1" stroke-width="2.4" stroke-linecap="round"/>`;
       overlaySvg += `<line x1="${(cx+s).toFixed(1)}" y1="${(cy-s).toFixed(1)}" x2="${(cx-s).toFixed(1)}" y2="${(cy+s).toFixed(1)}" stroke="#F1ECE1" stroke-width="2.4" stroke-linecap="round"/>`;
+      overlaySvg += `</g>`;
     }
   });
+  // Un colpo appena andato a vuoto: un cerchietto d'acqua che si allarga e
+  // sparisce, al posto del semplice puntino statico gia' disegnato nella
+  // cella stessa (quello resta, questo e' solo l'effetto in piu' al momento).
+  if(lastCoord && !lastHit){
+    const rowIdx = BS_ROWS.indexOf(lastCoord[0]);
+    const col = parseInt(lastCoord.slice(1),10);
+    if(rowIdx>=0){
+      const cx = colLabelW+gap + (col-1)*(cellSize+gap) + cellSize/2;
+      const cy = cellSize+gap + rowIdx*(cellSize+gap) + cellSize/2;
+      overlaySvg += `<circle class="bs-miss-new" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(cellSize*0.3).toFixed(1)}" fill="none" stroke="#9FD8EA" stroke-width="2"/>`;
+    }
+  }
   if(overlaySvg) html += `<svg width="${totalW}" height="${totalH}" viewBox="0 0 ${totalW} ${totalH}" style="position:absolute;top:0;left:0;pointer-events:none;">${overlaySvg}</svg>`;
   html += `</div>`;
   return html;
@@ -12250,8 +12280,11 @@ function renderBattleshipMatch(match, claim){
   // max-width imposto dopo via CSS sulla riga di intestazione a altezza fissa.
   const atkCellSize = isLandscape ? (shortHeight ? 15 : 19) : (shortHeight ? 16 : 22);
   const defCellSize = isLandscape ? (shortHeight ? 13 : 17) : (shortHeight ? 14 : 19);
-  const attackGrid = bsGridHTML(match.boards[opponentId], { revealShips:false, cellSize:atkCellSize, clickable:canAttack, clickAction:`bsShootAt.bind(null,'${match.id}','${myId}')`, idPrefix:'bs-atk', vhBudget:40 });
-  const myGrid = bsGridHTML(match.boards[myId||match.turnOrder[0]], { revealShips:true, cellSize:defCellSize, idPrefix:'bs-def', vhBudget:40 });
+  const defendingId = myId||match.turnOrder[0];
+  const lastShotOnAttack = match.lastShot && match.lastShot.targetId===opponentId ? match.lastShot : null;
+  const lastShotOnDefense = match.lastShot && match.lastShot.targetId===defendingId ? match.lastShot : null;
+  const attackGrid = bsGridHTML(match.boards[opponentId], { revealShips:false, cellSize:atkCellSize, clickable:canAttack, clickAction:`bsShootAt.bind(null,'${match.id}','${myId}')`, idPrefix:'bs-atk', vhBudget:40, lastShotCoord: lastShotOnAttack&&lastShotOnAttack.coord, lastShotHit: lastShotOnAttack&&lastShotOnAttack.hit });
+  const myGrid = bsGridHTML(match.boards[defendingId], { revealShips:true, cellSize:defCellSize, idPrefix:'bs-def', vhBudget:40, lastShotCoord: lastShotOnDefense&&lastShotOnDefense.coord, lastShotHit: lastShotOnDefense&&lastShotOnDefense.hit });
   const lastShotHtml = match.lastShot ? `<div class="turn-banner">${bsLastShotText(match)}</div>` : '';
 
   // recap della flotta avversaria: quali navi sono gia' state affondate, cosi'
