@@ -1033,11 +1033,21 @@ function flyCardImage(imgSrc, fromRect, toRect, opts){
   opts = opts || {};
   if(!fromRect || !toRect || !imgSrc) return;
   const w = opts.width || 46, h = opts.height || 64;
+  // Un contenitore esterno gestisce posizione/prospettiva, l'immagine dentro
+  // gestisce solo la rotazione: separarli evita il difetto (verificato a
+  // parte) per cui un filter (l'ombra) sullo stesso elemento con
+  // transform-style:preserve-3d forza Chromium ad "appiattire" quel
+  // contesto 3D. Qui non serve nemmeno preserve-3d in senso stretto (c'e'
+  // una sola immagine, non un fronte/retro da alternare), ma la separazione
+  // resta comunque piu' pulita e sicura.
+  const wrap = document.createElement('div');
+  wrap.style.cssText = `position:fixed;left:0;top:0;z-index:99999;pointer-events:none;width:${w}px;height:${h}px;perspective:700px;`;
   const el = document.createElement('img');
   el.src = imgSrc;
   el.alt = '';
-  el.style.cssText = `position:fixed;left:0;top:0;z-index:99999;pointer-events:none;width:${w}px;height:${h}px;object-fit:contain;border-radius:5px;filter:drop-shadow(0 4px 10px rgba(0,0,0,.5));`;
-  document.body.appendChild(el);
+  el.style.cssText = `display:block;width:100%;height:100%;object-fit:contain;border-radius:5px;filter:drop-shadow(0 4px 10px rgba(0,0,0,.5));`;
+  wrap.appendChild(el);
+  document.body.appendChild(wrap);
   // Sempre dentro i bordi reali della finestra: un rettangolo di partenza o
   // arrivo troppo vicino a un margine (es. una carta in mano appena dentro
   // il bordo sinistro) non deve mai far uscire la carta dallo schermo
@@ -1047,16 +1057,59 @@ function flyCardImage(imgSrc, fromRect, toRect, opts){
   const clampY = y => Math.max(2, Math.min(vh-h-2, y));
   const fx = clampX(fromRect.left + fromRect.width/2 - w/2), fy = clampY(fromRect.top + fromRect.height/2 - h/2);
   const tx = clampX(toRect.left + toRect.width/2 - w/2), ty = clampY(toRect.top + toRect.height/2 - h/2);
-  gsap.set(el, { x:fx, y:fy, opacity:0, scale:0.75, rotate: opts.rot0||0 });
-  gsap.timeline({ onComplete: ()=>{ gsap.to(el, { opacity:0, duration:0.16, onComplete:()=>el.remove() }); } })
-    .to(el, { opacity:1, duration:0.07 }, 0)
-    .to(el, { x:tx, y:ty, scale:1, rotate:0, duration:opts.duration||0.34, ease:'power2.out' }, 0);
+  const dur = opts.duration || 0.34;
+  // Leggera "capriola" 3D durante il volo, non solo una scivolata piatta: un
+  // giro completo su se stessa (rotateY) piu' una piccola oscillazione
+  // (rotateX), casuali in verso/ampiezza cosi' due carte in volo insieme
+  // non sembrano un unico disegno duplicato.
+  const tumble = opts.tumble !== false;
+  const spin = tumble ? 360*(Math.random()<0.5?-1:1) : 0;
+  const wobble = tumble ? (Math.random()*26-13) : 0;
+  gsap.set(wrap, { x:fx, y:fy, opacity:0 });
+  gsap.set(el, { scale:0.75, rotate: opts.rot0||0, rotateY:0, rotateX:0, transformPerspective:700 });
+  gsap.timeline({ onComplete: ()=>{ gsap.to(wrap, { opacity:0, duration:0.16, onComplete:()=>wrap.remove() }); } })
+    .to(wrap, { opacity:1, duration:0.07 }, 0)
+    .to(wrap, { x:tx, y:ty, duration:dur, ease:'power2.out' }, 0)
+    .to(el, { scale:1, rotate:0, rotateY:spin, rotateX:wobble, duration:dur, ease:'power2.out' }, 0);
 }
-// Distribuzione a inizio mano: una carta coperta alla volta vola dal centro
-// dello schermo verso l'esterno, a raggiera, e sparisce — senza puntare a
-// una posizione precisa per ciascun giocatore: e' proprio quel tentativo,
-// fragile e diverso per ogni gioco, ad aver causato i tagli delle versioni
-// precedenti. Il numero di giocatori conta solo per il ritmo dei click.
+// Mescolata visiva prima della distribuzione: un mazzetto di dorsi al centro
+// dello schermo si taglia in due e si ricongiunge, come un vero riffle
+// shuffle. Non c'entra con l'algoritmo di mescolamento vero (quello resta
+// shuffle(), invariato: qui e' solo l'equivalente a schermo di quel
+// passaggio, per dare il senso che il mazzo viene mescolato prima di essere
+// dato). Ritorna la durata approssimativa (secondi) cosi' chi chiama puo'
+// far partire la distribuzione vera solo a mescolata conclusa.
+function cardFxShuffle(backSrc, cx, cy, cardW, cardH){
+  if(!backSrc) return 0;
+  const n = 8;
+  const cards = [];
+  for(let i=0;i<n;i++){
+    const el = document.createElement('img');
+    el.src = backSrc; el.alt = '';
+    el.style.cssText = `position:fixed;left:0;top:0;z-index:99998;pointer-events:none;width:${cardW}px;height:${cardH}px;object-fit:contain;border-radius:4px;filter:drop-shadow(0 2px 6px rgba(0,0,0,.4));`;
+    document.body.appendChild(el);
+    cards.push(el);
+    const stackOff = (i - (n-1)/2) * 1.4; // leggero ventaglio, non un mazzo perfettamente allineato
+    gsap.set(el, { x:cx-cardW/2+stackOff, y:cy-cardH/2-stackOff, rotate:stackOff*2, opacity:0 });
+  }
+  const half = Math.ceil(n/2);
+  const tl = gsap.timeline({ onComplete: ()=>{ cards.forEach(el=>el.remove()); } });
+  tl.to(cards, { opacity:1, duration:0.1, stagger:0.02 }, 0);
+  cards.forEach((el,i)=>{
+    const side = i<half ? -1 : 1;
+    const stagger = (i%half)*0.014;
+    const dx = side * (16 + (i%half)*3);
+    tl.to(el, { x:`+=${dx}`, rotateY: side*30, duration:0.15, ease:'power1.out' }, 0.1+stagger)
+      .to(el, { x:`-=${dx}`, rotateY:0, duration:0.17, ease:'power1.inOut' }, 0.3+stagger);
+  });
+  return 0.5;
+}
+// Distribuzione a inizio mano: prima una breve mescolata (vedi sopra), poi
+// una carta coperta alla volta vola dal centro dello schermo verso
+// l'esterno, a raggiera, e sparisce — senza puntare a una posizione precisa
+// per ciascun giocatore: e' proprio quel tentativo, fragile e diverso per
+// ogni gioco, ad aver causato i tagli delle versioni precedenti. Il numero
+// di giocatori conta solo per il ritmo dei click.
 function cardFxDealTable(names, myIndex, cardsPerPlayer, opts){
   opts = opts || {};
   if(!Array.isArray(names) || names.length<1) return;
@@ -1080,6 +1133,8 @@ function cardFxDealTable(names, myIndex, cardsPerPlayer, opts){
   // quella partita (passato da chi chiama), non sempre lo stesso: Scala 40 e
   // Poker usano il mazzo "poker", non quello regionale italiano di default.
   const backSrc = opts.backImg || CARD_IMG['back'] || '';
+  const shuffleDur = opts.skipShuffle ? 0 : cardFxShuffle(backSrc, cx, cy, cardW, cardH);
+  const startDelay = shuffleDur * 1000;
   for(let i=0;i<shown;i++){
     setTimeout(()=>{
       sndCardPlay();
@@ -1092,9 +1147,9 @@ function cardFxDealTable(names, myIndex, cardsPerPlayer, opts){
       const from = { left:cx, top:cy, width:0, height:0 };
       const to = { left:toX, top:toY, width:0, height:0 };
       flyCardImage(backSrc, from, to, { width:cardW, height:cardH, duration:0.32, rot0:Math.random()*36-18 });
-    }, i*gap);
+    }, startDelay + i*gap);
   }
-  const totalDuration = Math.max(350, shown*gap + 200);
+  const totalDuration = Math.max(350, startDelay + shown*gap + 200);
   setTimeout(()=>{ if(typeof opts.onDone==='function') opts.onDone(); }, totalDuration);
 }
 // Lancio di una singola carta quando un giocatore gioca/scarta: il suono
