@@ -11784,7 +11784,19 @@ function f4BoardSVG(match, myId, canInteract){
   const boardH = F4_ROWS*cellSize + padding*2 + topOffset;
   const winSet = new Set((match.winLine||[]).map(([r,c])=>r+'-'+c));
 
-  let cells = '';
+  // I gettoni non sono piu' dischi piatti a tinta unica: un gradiente radiale
+  // (chiaro in alto a sinistra, scuro sul bordo) piu' un'ombra ellittica sotto
+  // ciascun gettone gia' caduto danno l'illusione di una sferetta di
+  // plastica vera, non di un cerchio disegnato.
+  const defs = `<defs>
+    <radialGradient id="f4-disc-R" cx="35%" cy="28%" r="75%">
+      <stop offset="0%" stop-color="#F3A2A8"/><stop offset="55%" stop-color="#D64550"/><stop offset="100%" stop-color="#96262F"/>
+    </radialGradient>
+    <radialGradient id="f4-disc-Y" cx="35%" cy="28%" r="75%">
+      <stop offset="0%" stop-color="#FCE7B2"/><stop offset="55%" stop-color="#E8B94A"/><stop offset="100%" stop-color="#AD8028"/>
+    </radialGradient>
+  </defs>`;
+  let cells = '', shadows = '';
   for(let r=0;r<F4_ROWS;r++){
     for(let c=0;c<F4_COLS;c++){
       const cx = padding + c*cellSize + cellSize/2;
@@ -11792,7 +11804,10 @@ function f4BoardSVG(match, myId, canInteract){
       const color = match.grid[r][c];
       const isWin = winSet.has(r+'-'+c);
       const isNew = match.lastMove && match.lastMove.row===r && match.lastMove.col===c;
-      cells += `<circle cx="${cx}" cy="${cy}" r="${cellSize/2-4}" fill="${color?f4ColorHex(color):'#0A1410'}" stroke="${isWin?'#D4AF6A':'#0F2040'}" stroke-width="${isWin?3.5:2}" class="${isNew?'f4-drop-in':''}"/>`;
+      const rad = cellSize/2-4;
+      if(color) shadows += `<ellipse cx="${cx}" cy="${(cy+rad*0.7).toFixed(1)}" rx="${(rad*0.7).toFixed(1)}" ry="${(rad*0.22).toFixed(1)}" fill="#000" opacity="0.3"/>`;
+      const fill = color ? `url(#f4-disc-${color==='R'?'R':'Y'})` : '#0A1410';
+      cells += `<circle cx="${cx}" cy="${cy}" r="${rad}" fill="${fill}" stroke="${isWin?'#D4AF6A':'#0F2040'}" stroke-width="${isWin?3.5:2}" class="${isNew?'f4-drop-in':''}"/>`;
     }
   }
   let clickAreas = '';
@@ -11811,7 +11826,9 @@ function f4BoardSVG(match, myId, canInteract){
   }
   return `
     <svg viewBox="0 0 ${boardW} ${boardH}" width="100%" style="max-width:min(380px, 88vw, 34vh);display:block;margin:0 auto;">
+      ${defs}
       <rect x="0" y="${topOffset}" width="${boardW}" height="${boardH-topOffset}" rx="14" fill="#1E3A8A" stroke="#16265A" stroke-width="2"/>
+      ${shadows}
       ${cells}
       ${clickAreas}
     </svg>`;
