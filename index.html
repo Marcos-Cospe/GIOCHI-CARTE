@@ -479,6 +479,10 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
 .bs-hit-new{ animation: bsHitPop 320ms cubic-bezier(.3,1.4,.4,1); transform-box: fill-box; transform-origin: center; }
 @keyframes bsSplash{ 0%{ transform:scale(0.3); opacity:0.9; } 100%{ transform:scale(3); opacity:0; } }
 .bs-miss-new{ animation: bsSplash 550ms ease-out forwards; transform-box: fill-box; transform-origin: center; }
+@keyframes boardSlideIn{ from{ transform:translate(var(--dx,0),var(--dy,0)); } to{ transform:translate(0,0); } }
+.board-slide-in{ animation: boardSlideIn 260ms cubic-bezier(.3,.7,.4,1); }
+@keyframes boardPromoteGlow{ 0%{ filter:drop-shadow(0 0 0 rgba(212,175,106,0)); } 40%{ filter:drop-shadow(0 0 9px rgba(212,175,106,.95)); } 100%{ filter:drop-shadow(0 0 0 rgba(212,175,106,0)); } }
+.board-promote-glow{ animation: boardSlideIn 260ms cubic-bezier(.3,.7,.4,1), boardPromoteGlow 900ms ease-out 260ms; }
 .card-fx-flash{ position:absolute; inset:0; background:radial-gradient(circle at 50% 65%, rgba(212,175,106,0.30), rgba(10,20,16,0) 55%); }
 .card-fx-stage{ position:relative; width:130px; height:182px; margin-bottom:14vh; transform-style:preserve-3d; }
 .card-fx-main, .card-fx-ghost{
@@ -12385,6 +12389,7 @@ function damaBoardHTML(match, myId, revealAll){
   const selectable = canPlay ? damaSelectableSquares(match, player.color) : new Set();
   const destinations = (canPlay && damaSelected) ? damaLegalOptionsFor(match, player.color, damaSelected.r, damaSelected.c).map(o=>{ const last=o.path[o.path.length-1]; return last.r+'_'+last.c; }) : [];
   const cellSize = 34;
+  const lm = match.lastMove;
   let html = `<div style="display:grid;grid-template-columns:repeat(8,1fr);gap:1px;max-width:min(${8*(cellSize+1)}px, 90vw, 40vh);margin:0 auto;background:#0A1410;padding:4px;border-radius:8px;">`;
   for(let r=0;r<8;r++){
     for(let c=0;c<8;c++){
@@ -12402,7 +12407,20 @@ function damaBoardHTML(match, myId, revealAll){
         const fill = piece.color==='W' ? '#F1ECE1' : '#241812';
         const ring = piece.color==='W' ? '#B8A88C' : '#4A3826';
         const glow = (isSelectable && !isSelected) ? 'box-shadow:0 0 0 3px #D4AF6A, 0 2px 3px rgba(0,0,0,0.4);' : 'box-shadow:0 2px 3px rgba(0,0,0,0.4);';
-        pieceHtml = `<div style="width:78%;height:78%;border-radius:50%;background:${fill};border:2.5px solid ${ring};display:flex;align-items:center;justify-content:center;${glow}">${piece.king?`<span style="font-size:min(${cellSize*0.42}px, 4.725vw, 2.1vh);">♛</span>`:''}</div>`;
+        const circle = `<div style="width:78%;height:78%;border-radius:50%;background:${fill};border:2.5px solid ${ring};display:flex;align-items:center;justify-content:center;${glow}">${piece.king?`<span style="font-size:min(${cellSize*0.42}px, 4.725vw, 2.1vh);">♛</span>`:''}</div>`;
+        // La pedina appena arrivata scivola dalla casella di partenza a quella
+        // di arrivo (percentuali della cella, non pixel fissi: la griglia e'
+        // responsive e puo' rimpicciolire su schermi stretti). Un wrapper a
+        // tutta cella porta il movimento, cosi' il 100% coincide sempre con
+        // un passo intero anche se il cerchio dentro e' piu' piccolo.
+        const isLandingSquare = lm && lm.to.r===r && lm.to.c===c;
+        if(isLandingSquare){
+          const dx = (lm.from.c - lm.to.c) * 100, dy = (lm.from.r - lm.to.r) * 100;
+          const promoteClass = lm.becameKing ? ' board-promote-glow' : '';
+          pieceHtml = `<div class="board-slide-in${promoteClass}" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;--dx:${dx}%;--dy:${dy}%;">${circle}</div>`;
+        } else {
+          pieceHtml = circle;
+        }
       }
       html += `<div ${clickable?`onclick="damaCellClick('${match.id}','${myId}',${r},${c})"`:''} style="width:100%;aspect-ratio:1;background:${bg};display:flex;align-items:center;justify-content:center;${clickable?'cursor:pointer;':''}">${pieceHtml}</div>`;
     }
@@ -12531,7 +12549,19 @@ function chessBoardHTML(match, myId, revealAll){
       let pieceHtml = '';
       if(piece){
         const glow = (isSelectable && !isSelected) ? 'text-shadow:0 0 6px #D4AF6A, 0 0 6px #D4AF6A;' : '';
-        pieceHtml = `<span style="font-size:min(${cellSize*0.75}px, 8.4375vw, 3.75vh);line-height:1;${glow}filter:drop-shadow(0 1px 1px rgba(0,0,0,0.5));">${CHESS_SYMBOLS[piece.color][piece.type]}</span>`;
+        const symbol = `<span style="font-size:min(${cellSize*0.75}px, 8.4375vw, 3.75vh);line-height:1;${glow}filter:drop-shadow(0 1px 1px rgba(0,0,0,0.5));">${CHESS_SYMBOLS[piece.color][piece.type]}</span>`;
+        // Come in Dama: il pezzo appena mosso scivola dalla casella di
+        // partenza (percentuali della cella, non pixel — griglia responsive).
+        // L'arrocco muove due pezzi ma lastMove registra solo il re: la torre
+        // resta senza scivolamento, limite accettato.
+        const isLandingSquare = match.lastMove && match.lastMove.to.r===r && match.lastMove.to.c===c;
+        if(isLandingSquare){
+          const dx = (match.lastMove.from.c - c) * 100, dy = (match.lastMove.from.r - r) * 100;
+          const promoteClass = match.lastMove.promo ? ' board-promote-glow' : '';
+          pieceHtml = `<span class="board-slide-in${promoteClass}" style="display:flex;width:100%;height:100%;align-items:center;justify-content:center;--dx:${dx}%;--dy:${dy}%;">${symbol}</span>`;
+        } else {
+          pieceHtml = symbol;
+        }
       }
       html += `<div ${clickable?`onclick="chessCellClick('${match.id}','${myId}',${r},${c})"`:''} style="width:100%;aspect-ratio:1;background:${bg};display:flex;align-items:center;justify-content:center;${clickable?'cursor:pointer;':''}">${pieceHtml}</div>`;
     }
