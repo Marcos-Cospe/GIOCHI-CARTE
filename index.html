@@ -1709,7 +1709,15 @@ function stateKeyOf(match, claim){
   const plays = match.trick ? match.trick.plays.map(p=>p.playerId+':'+p.card.id+':'+(p.forcedValue||'')).join(',') : '';
   const resolved = match.trick && match.trick.resolved ? 'R'+match.trick.winnerId : '';
   const ace = pendingAceChoice ? 'ace:'+pendingAceChoice.cardId : '';
-  return [match.id, match.rev||0, match.roundIndex, match.phase, prev, plays, resolved, claimKey, ace, syncDiverged?'DIV':''].join('|');
+  // Durante 'dealing' e' l'UNICA cosa che cambia da un render all'altro (previsioni/
+  // plays/resolved restano tutti vuoti finche' non si esce da questa fase): senza,
+  // ogni carta data produceva la STESSA chiave della precedente, il render veniva
+  // saltato (compreso il controllo che fa scattare il passaggio a 'predict' a mazzo
+  // finito) e la distribuzione poteva restare bloccata a meta' — bug reale, non solo
+  // teorico, riprodotto con Playwright su circa 1 mano ogni 3.
+  const mani = match.hands ? match.turnOrder.map(id=>(match.hands[id]||[]).length).join(',') : '';
+  const dealing = match.phase==='dealing' ? [match.dealCursor, match.dealPassBaseline, match.dealPassSize].join(':') : '';
+  return [match.id, match.rev||0, match.roundIndex, match.phase, mani, dealing, prev, plays, resolved, claimKey, ace, syncDiverged?'DIV':''].join('|');
 }
 
 // --- Sale d'aspetto ------------------------------------------------------
@@ -3538,7 +3546,13 @@ function packMatch(m){
     // per ricostruire le mani esatte a qualunque punto della distribuzione.
     dc:m.dealCursor ?? 0,
     do:(m.dealOrder||[]).map(playerIdx),
-    ldt:m.lastDealt ? [playerIdx(m.lastDealt.toId), m.lastDealt.seq] : null
+    ldt:m.lastDealt ? [playerIdx(m.lastDealt.toId), m.lastDealt.seq] : null,
+    // Regola del "giro" (vedi dealBiscaCard): senza questi tre, ogni
+    // sincronizzazione la resetterebbe silenziosamente a "giro aperto",
+    // vanificando il blocco appena un dispositivo si riallinea.
+    pb:m.dealPassBaseline||0,
+    ps:(m.dealPassSize==null) ? null : m.dealPassSize,
+    pld:(m.dealPassLastId==null) ? null : playerIdx(m.dealPassLastId)
   };
   if(m.trick) p.tk = {
     pl:m.trick.plays.map(x=>[x.playerId, cardIdx(x.card), x.forcedValue||0]),
@@ -3585,6 +3599,9 @@ function unpackMatch(p){
     if(m.hands[pid]) m.hands[pid].push(deck[i]);
   }
   m.lastDealt = p.ldt ? { toId: m.players[p.ldt[0]] && m.players[p.ldt[0]].id, seq: p.ldt[1] } : null;
+  m.dealPassBaseline = p.pb||0;
+  m.dealPassSize = (p.ps==null) ? null : p.ps;
+  m.dealPassLastId = (p.pld==null) ? null : (m.players[p.pld] && m.players[p.pld].id);
   for(const rp of m.roundPlays){
     const h = m.hands[rp.playerId];
     if(!h) continue;
@@ -3631,6 +3648,11 @@ function startRound(match){
   match.dealTotal = active.length * cards;
   match.dealOrder = []; // a chi e' andata ciascuna carta del mazzo, in ordine — vedi packMatch
   match.lastDealt = null;
+  // Regola del "giro": vedi dealBiscaCard. dealPassSize=null vuol dire
+  // giro ancora aperto (il mazziere puo' ancora decidere la misura).
+  match.dealPassBaseline = 0;
+  match.dealPassSize = null;
+  match.dealPassLastId = null;
   match.roundActive = active;
   match.roundPlays = [];   // carte gia calate in questa mano, per ricostruire le mani residue
   match.previsioni = {};
@@ -3650,6 +3672,17 @@ function startRound(match){
 // sposta la prossima carta del mazzo deterministico nella mano scelta.
 // Niente distribuzione "automatica dietro le quinte": finche' la fase resta
 // 'dealing', match.hands riflette esattamente le carte gia' davvero date.
+//
+// Regola del "giro": come un vero mazziere che gira intorno al tavolo dando
+// lo stesso numero di carte a testa, ma con quel numero deciso al momento.
+// Il mazziere puo' dare quante carte vuole di fila allo STESSO giocatore
+// (il giro resta "aperto"): appena tocca un giocatore DIVERSO, la misura si
+// blocca a quante ne aveva appena dato al precedente, e tutti gli altri
+// devono raggiungere la stessa misura prima che si possa aprire un nuovo
+// giro (con una misura magari diversa). renderTableSVG nasconde in anticipo
+// l'anello sui posti che il giro attuale non permette ancora di toccare,
+// cosi' un tocco "bloccato" non sembra un tocco che semplicemente non
+// funziona (vedi dealableHere).
 async function dealBiscaCard(matchId, dealerId, toPlayerId){
   const match = await getActiveMatch();
   if(!match || match.id!==matchId || match.phase!=='dealing') return;
@@ -3657,16 +3690,47 @@ async function dealBiscaCard(matchId, dealerId, toPlayerId){
   if(!dealer || dealer.id!==dealerId) return; // solo il mazziere di turno puo' distribuire
   if(!match.roundActive.includes(toPlayerId)) return;
   if(match.dealCursor>=match.dealTotal) return;
+  const cardsPerPlayer = SEQ[match.roundIndex % SEQ.length];
+  const already = (match.hands[toPlayerId]||[]).length;
+  if(already>=cardsPerPlayer) return; // ha gia' tutte le sue carte per questa mano
+
+  const baseline = match.dealPassBaseline||0;
+  const alreadyInPass = already - baseline;
+  if(match.dealPassSize!=null){
+    if(alreadyInPass>=match.dealPassSize) return; // ha gia' l'assegno di questo giro, aspetta gli altri
+  } else if(match.dealPassLastId!=null && match.dealPassLastId!==toPlayerId){
+    // primo cambio di giocatore col giro ancora aperto: la misura si blocca
+    // a quante ne aveva il precedente (mai zero: se era zero non ci sarebbe
+    // stato niente da bloccare, vuol dire che e' il primissimo tocco)
+    const lastCount = (match.hands[match.dealPassLastId]||[]).length - baseline;
+    match.dealPassSize = Math.max(1, lastCount);
+    if(alreadyInPass>=match.dealPassSize) return;
+  }
+
   const deck = biscaDealDeckFor(match);
   const card = deck[match.dealCursor];
   match.hands[toPlayerId].push(card);
   match.dealOrder = match.dealOrder || [];
   match.dealOrder.push(toPlayerId);
   match.dealCursor++;
+  match.dealPassLastId = toPlayerId;
   // Niente identita' della carta qui: durante il volo si vede sempre e solo
   // il dorso (la carta e' ancora coperta), quindi all'animazione basta sapere
   // CHI l'ha ricevuta, non quale carta sia.
   match.lastDealt = { toId: toPlayerId, seq: match.dealCursor };
+
+  // giro completato: tutti gli attivi hanno raggiunto la stessa misura ->
+  // si riapre un giro nuovo, la prossima misura la decide di nuovo il mazziere
+  if(match.dealPassSize!=null){
+    const target = baseline + match.dealPassSize;
+    const allCaughtUp = match.roundActive.every(pid => (match.hands[pid]||[]).length>=target);
+    if(allCaughtUp){
+      match.dealPassBaseline = target;
+      match.dealPassSize = null;
+      match.dealPassLastId = null;
+    }
+  }
+
   await setActiveMatch(match);
   await render();
 }
@@ -4192,9 +4256,22 @@ function renderTableSVG(match, cards, revealAll, myId){
       turnDotSvg = `<circle class="turn-dot" cx="${dx2}" cy="${dy2}" r="${5*fs}" fill="#D4AF6A" stroke="#16261F" stroke-width="1.2"/>`;
     }
 
-    const dealableHere = canDeal && cardsLeft<cards;
+    // La regola del "giro" (vedi dealBiscaCard): un posto che ha gia' la
+    // misura di questo giro non e' piu' toccabile finche' gli altri non lo
+    // raggiungono — nascondere in anticipo l'anello evita che un tocco
+    // "bloccato dalla regola" sembri un tocco che semplicemente non funziona.
+    const passBaseline = match.dealPassBaseline||0;
+    const passSize = match.dealPassSize;
+    const dealableHere = canDeal && cardsLeft<cards && (passSize==null || (cardsLeft-passBaseline)<passSize);
+    // Il bersaglio visivo (anello tratteggiato) e' disegnato con fill="none"
+    // (solo il tratto), e in SVG una forma senza fill NON riceve i click di
+    // default — si puo' toccare esattamente sopra e non succedere nulla. Un
+    // cerchio invisibile ma "riempito" (fill="transparent", diverso da
+    // "none": quello resta cliccabile) copre TUTTA l'area evidenziata, non
+    // solo i pochi pixel di stroke o il piccolo cerchio dell'avatar dentro.
     seats += `
       <g id="table-seat-${pid}" ${dealableHere?`onclick="dealBiscaCard('${match.id}','${myId}','${pid}')" style="cursor:pointer;"`:''}>
+        ${dealableHere?`<circle cx="${x}" cy="${y}" r="${avatarR+9}" fill="transparent"/>`:''}
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         ${dealableHere?`<circle cx="${x}" cy="${y}" r="${avatarR+9}" fill="none" stroke="#D4AF6A" stroke-width="1.4" stroke-dasharray="3,3"><animateTransform attributeName="transform" type="rotate" from="0 ${x} ${y}" to="360 ${x} ${y}" dur="6s" repeatCount="indefinite"/></circle>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':'#3C5A4C')}" stroke-width="${isTurn?2.4:1.8}"/>
@@ -10939,9 +11016,15 @@ function renderRoundEndBanner(match, myId){
 function renderDealingBody(match, myId, revealAll){
   const dealer = match.players[match.dealerIdx];
   const isDealer = !revealAll && myId===dealer.id;
-  return isDealer
+  // Appena il giro si blocca (vedi dealBiscaCard), lo si dice esplicitamente:
+  // senza, i posti che smettono di avere l'anello dorato sembrerebbero un
+  // guasto invece della regola "prima li raggiungono tutti, poi si continua".
+  const passHint = match.dealPassSize!=null
+    ? `<p class="hint" style="text-align:center;opacity:.8;">Giro da ${match.dealPassSize} cart${match.dealPassSize===1?'a':'e'}: prima che tutti la raggiungano non si passa alla prossima.</p>`
+    : '';
+  return (isDealer
     ? `<p class="hint" style="text-align:center;">Tocca un posto al tavolo per dargli una carta.</p>`
-    : `<p class="hint" style="text-align:center;">${esc(dealer.name)} sta distribuendo le carte…</p>`;
+    : `<p class="hint" style="text-align:center;">${esc(dealer.name)} sta distribuendo le carte…</p>`) + passHint;
 }
 // Anima in diretta, su OGNI dispositivo, la carta appena data da
 // dealBiscaCard/dealOneCard-del-bot: parte dal centro del tavolo (dove sta
