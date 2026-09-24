@@ -473,6 +473,16 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
 .card-fx-overlay{ position:fixed; inset:0; z-index:9999; pointer-events:none; display:flex; align-items:flex-end; justify-content:center; perspective:1100px; }
 @keyframes f4DropIn{ 0%{ transform:translateY(-260px); } 70%{ transform:translateY(6px); } 85%{ transform:translateY(-3px); } 100%{ transform:translateY(0); } }
 .f4-drop-in{ animation: f4DropIn 480ms cubic-bezier(.5,0,.7,1); transform-box: fill-box; transform-origin: center; }
+@keyframes bsHitFlash{ 0%{ transform:scale(0.4); opacity:0.85; } 100%{ transform:scale(1.7); opacity:0; } }
+.bs-hit-flash{ animation: bsHitFlash 420ms ease-out forwards; transform-box: fill-box; transform-origin: center; }
+@keyframes bsHitPop{ 0%{ transform:scale(0.2); } 55%{ transform:scale(1.4); } 100%{ transform:scale(1); } }
+.bs-hit-new{ animation: bsHitPop 320ms cubic-bezier(.3,1.4,.4,1); transform-box: fill-box; transform-origin: center; }
+@keyframes bsSplash{ 0%{ transform:scale(0.3); opacity:0.9; } 100%{ transform:scale(3); opacity:0; } }
+.bs-miss-new{ animation: bsSplash 550ms ease-out forwards; transform-box: fill-box; transform-origin: center; }
+@keyframes boardSlideIn{ from{ transform:translate(var(--dx,0),var(--dy,0)); } to{ transform:translate(0,0); } }
+.board-slide-in{ animation: boardSlideIn 260ms cubic-bezier(.3,.7,.4,1); }
+@keyframes boardPromoteGlow{ 0%{ filter:drop-shadow(0 0 0 rgba(212,175,106,0)); } 40%{ filter:drop-shadow(0 0 9px rgba(212,175,106,.95)); } 100%{ filter:drop-shadow(0 0 0 rgba(212,175,106,0)); } }
+.board-promote-glow{ animation: boardSlideIn 260ms cubic-bezier(.3,.7,.4,1), boardPromoteGlow 900ms ease-out 260ms; }
 .card-fx-flash{ position:absolute; inset:0; background:radial-gradient(circle at 50% 65%, rgba(212,175,106,0.30), rgba(10,20,16,0) 55%); }
 .card-fx-stage{ position:relative; width:130px; height:182px; margin-bottom:14vh; transform-style:preserve-3d; }
 .card-fx-main, .card-fx-ghost{
@@ -928,7 +938,12 @@ function pokerChipHTML(amount, size){
   size = size || 20;
   const label = amount>=1000 ? (Math.round(amount/100)/10)+'k' : amount;
   const fontSize = Math.max(7, Math.round(size*0.36));
-  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;flex:0 0 auto;background:repeating-conic-gradient(#D4AF6A 0deg 22.5deg, #7A1E1E 22.5deg 45deg);border:1.5px solid #F1ECE1;box-shadow:0 1px 3px rgba(0,0,0,.55), inset 0 0 0 ${Math.max(2,Math.round(size*0.14))}px rgba(20,14,10,.88);color:#F1ECE1;font-size:${fontSize}px;font-weight:700;font-family:'IBM Plex Mono',monospace;text-shadow:0 1px 2px rgba(0,0,0,.8);line-height:1;">${label}</span>`;
+  // Usato da Poker, Black Jack e Roulette (unico punto condiviso): un
+  // riflesso radiale sovrapposto alle strisce esistenti (primo layer di
+  // background = quello che si vede sopra) da' l'aria di plastica lucida
+  // invece di un cerchio piatto a righe, senza toccare ne' il pattern ne' il
+  // markup che lo usa nei tre giochi.
+  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;flex:0 0 auto;background:radial-gradient(circle at 34% 28%, rgba(255,255,255,.5), rgba(255,255,255,0) 58%), repeating-conic-gradient(#D4AF6A 0deg 22.5deg, #7A1E1E 22.5deg 45deg);border:1.5px solid #F1ECE1;box-shadow:0 1px 3px rgba(0,0,0,.55), inset 0 0 0 ${Math.max(2,Math.round(size*0.14))}px rgba(20,14,10,.88);color:#F1ECE1;font-size:${fontSize}px;font-weight:700;font-family:'IBM Plex Mono',monospace;text-shadow:0 1px 2px rgba(0,0,0,.8);line-height:1;">${label}</span>`;
 }
 
 // ===== popup "hai perso" (mano/round/scontro/partita) =====
@@ -1033,11 +1048,21 @@ function flyCardImage(imgSrc, fromRect, toRect, opts){
   opts = opts || {};
   if(!fromRect || !toRect || !imgSrc) return;
   const w = opts.width || 46, h = opts.height || 64;
+  // Un contenitore esterno gestisce posizione/prospettiva, l'immagine dentro
+  // gestisce solo la rotazione: separarli evita il difetto (verificato a
+  // parte) per cui un filter (l'ombra) sullo stesso elemento con
+  // transform-style:preserve-3d forza Chromium ad "appiattire" quel
+  // contesto 3D. Qui non serve nemmeno preserve-3d in senso stretto (c'e'
+  // una sola immagine, non un fronte/retro da alternare), ma la separazione
+  // resta comunque piu' pulita e sicura.
+  const wrap = document.createElement('div');
+  wrap.style.cssText = `position:fixed;left:0;top:0;z-index:99999;pointer-events:none;width:${w}px;height:${h}px;perspective:700px;`;
   const el = document.createElement('img');
   el.src = imgSrc;
   el.alt = '';
-  el.style.cssText = `position:fixed;left:0;top:0;z-index:99999;pointer-events:none;width:${w}px;height:${h}px;object-fit:contain;border-radius:5px;filter:drop-shadow(0 4px 10px rgba(0,0,0,.5));`;
-  document.body.appendChild(el);
+  el.style.cssText = `display:block;width:100%;height:100%;object-fit:contain;border-radius:5px;filter:drop-shadow(0 4px 10px rgba(0,0,0,.5));`;
+  wrap.appendChild(el);
+  document.body.appendChild(wrap);
   // Sempre dentro i bordi reali della finestra: un rettangolo di partenza o
   // arrivo troppo vicino a un margine (es. una carta in mano appena dentro
   // il bordo sinistro) non deve mai far uscire la carta dallo schermo
@@ -1047,16 +1072,59 @@ function flyCardImage(imgSrc, fromRect, toRect, opts){
   const clampY = y => Math.max(2, Math.min(vh-h-2, y));
   const fx = clampX(fromRect.left + fromRect.width/2 - w/2), fy = clampY(fromRect.top + fromRect.height/2 - h/2);
   const tx = clampX(toRect.left + toRect.width/2 - w/2), ty = clampY(toRect.top + toRect.height/2 - h/2);
-  gsap.set(el, { x:fx, y:fy, opacity:0, scale:0.75, rotate: opts.rot0||0 });
-  gsap.timeline({ onComplete: ()=>{ gsap.to(el, { opacity:0, duration:0.16, onComplete:()=>el.remove() }); } })
-    .to(el, { opacity:1, duration:0.07 }, 0)
-    .to(el, { x:tx, y:ty, scale:1, rotate:0, duration:opts.duration||0.34, ease:'power2.out' }, 0);
+  const dur = opts.duration || 0.34;
+  // Leggera "capriola" 3D durante il volo, non solo una scivolata piatta: un
+  // giro completo su se stessa (rotateY) piu' una piccola oscillazione
+  // (rotateX), casuali in verso/ampiezza cosi' due carte in volo insieme
+  // non sembrano un unico disegno duplicato.
+  const tumble = opts.tumble !== false;
+  const spin = tumble ? 360*(Math.random()<0.5?-1:1) : 0;
+  const wobble = tumble ? (Math.random()*26-13) : 0;
+  gsap.set(wrap, { x:fx, y:fy, opacity:0 });
+  gsap.set(el, { scale:0.75, rotate: opts.rot0||0, rotateY:0, rotateX:0, transformPerspective:700 });
+  gsap.timeline({ onComplete: ()=>{ gsap.to(wrap, { opacity:0, duration:0.16, onComplete:()=>wrap.remove() }); } })
+    .to(wrap, { opacity:1, duration:0.07 }, 0)
+    .to(wrap, { x:tx, y:ty, duration:dur, ease:'power2.out' }, 0)
+    .to(el, { scale:1, rotate:0, rotateY:spin, rotateX:wobble, duration:dur, ease:'power2.out' }, 0);
 }
-// Distribuzione a inizio mano: una carta coperta alla volta vola dal centro
-// dello schermo verso l'esterno, a raggiera, e sparisce — senza puntare a
-// una posizione precisa per ciascun giocatore: e' proprio quel tentativo,
-// fragile e diverso per ogni gioco, ad aver causato i tagli delle versioni
-// precedenti. Il numero di giocatori conta solo per il ritmo dei click.
+// Mescolata visiva prima della distribuzione: un mazzetto di dorsi al centro
+// dello schermo si taglia in due e si ricongiunge, come un vero riffle
+// shuffle. Non c'entra con l'algoritmo di mescolamento vero (quello resta
+// shuffle(), invariato: qui e' solo l'equivalente a schermo di quel
+// passaggio, per dare il senso che il mazzo viene mescolato prima di essere
+// dato). Ritorna la durata approssimativa (secondi) cosi' chi chiama puo'
+// far partire la distribuzione vera solo a mescolata conclusa.
+function cardFxShuffle(backSrc, cx, cy, cardW, cardH){
+  if(!backSrc) return 0;
+  const n = 8;
+  const cards = [];
+  for(let i=0;i<n;i++){
+    const el = document.createElement('img');
+    el.src = backSrc; el.alt = '';
+    el.style.cssText = `position:fixed;left:0;top:0;z-index:99998;pointer-events:none;width:${cardW}px;height:${cardH}px;object-fit:contain;border-radius:4px;filter:drop-shadow(0 2px 6px rgba(0,0,0,.4));`;
+    document.body.appendChild(el);
+    cards.push(el);
+    const stackOff = (i - (n-1)/2) * 1.4; // leggero ventaglio, non un mazzo perfettamente allineato
+    gsap.set(el, { x:cx-cardW/2+stackOff, y:cy-cardH/2-stackOff, rotate:stackOff*2, opacity:0 });
+  }
+  const half = Math.ceil(n/2);
+  const tl = gsap.timeline({ onComplete: ()=>{ cards.forEach(el=>el.remove()); } });
+  tl.to(cards, { opacity:1, duration:0.1, stagger:0.02 }, 0);
+  cards.forEach((el,i)=>{
+    const side = i<half ? -1 : 1;
+    const stagger = (i%half)*0.014;
+    const dx = side * (16 + (i%half)*3);
+    tl.to(el, { x:`+=${dx}`, rotateY: side*30, duration:0.15, ease:'power1.out' }, 0.1+stagger)
+      .to(el, { x:`-=${dx}`, rotateY:0, duration:0.17, ease:'power1.inOut' }, 0.3+stagger);
+  });
+  return 0.5;
+}
+// Distribuzione a inizio mano: prima una breve mescolata (vedi sopra), poi
+// una carta coperta alla volta vola dal centro dello schermo verso
+// l'esterno, a raggiera, e sparisce — senza puntare a una posizione precisa
+// per ciascun giocatore: e' proprio quel tentativo, fragile e diverso per
+// ogni gioco, ad aver causato i tagli delle versioni precedenti. Il numero
+// di giocatori conta solo per il ritmo dei click.
 function cardFxDealTable(names, myIndex, cardsPerPlayer, opts){
   opts = opts || {};
   if(!Array.isArray(names) || names.length<1) return;
@@ -1080,6 +1148,8 @@ function cardFxDealTable(names, myIndex, cardsPerPlayer, opts){
   // quella partita (passato da chi chiama), non sempre lo stesso: Scala 40 e
   // Poker usano il mazzo "poker", non quello regionale italiano di default.
   const backSrc = opts.backImg || CARD_IMG['back'] || '';
+  const shuffleDur = opts.skipShuffle ? 0 : cardFxShuffle(backSrc, cx, cy, cardW, cardH);
+  const startDelay = shuffleDur * 1000;
   for(let i=0;i<shown;i++){
     setTimeout(()=>{
       sndCardPlay();
@@ -1092,9 +1162,9 @@ function cardFxDealTable(names, myIndex, cardsPerPlayer, opts){
       const from = { left:cx, top:cy, width:0, height:0 };
       const to = { left:toX, top:toY, width:0, height:0 };
       flyCardImage(backSrc, from, to, { width:cardW, height:cardH, duration:0.32, rot0:Math.random()*36-18 });
-    }, i*gap);
+    }, startDelay + i*gap);
   }
-  const totalDuration = Math.max(350, shown*gap + 200);
+  const totalDuration = Math.max(350, startDelay + shown*gap + 200);
   setTimeout(()=>{ if(typeof opts.onDone==='function') opts.onDone(); }, totalDuration);
 }
 // Lancio di una singola carta quando un giocatore gioca/scarta: il suono
@@ -1186,6 +1256,9 @@ function cancelAceChoice(){
 }
 
 function currentTurnInfo(match){
+  if(match.phase==='dealing'){
+    return {type:'dealing', playerId: match.players[match.dealerIdx].id};
+  }
   if(match.phase==='predict'){
     return {type:'predict', playerId: match.turnOrder.find(id=>match.previsioni[id]===undefined)};
   }
@@ -1260,15 +1333,20 @@ async function scheduleBiscaBotMove(match){
   if(!player || !player.isBot){ botMoveKey=null; return; }
 
   const key = match.id+'|'+match.roundIndex+'|'+info.type+'|'+info.playerId+'|'+
-    (match.phase==='play'?match.trick.plays.length:Object.keys(match.previsioni).length);
+    (info.type==='dealing' ? match.dealCursor : (match.phase==='play'?match.trick.plays.length:Object.keys(match.previsioni).length));
   if(botMoveKey===key) return;
   botMoveKey = key;
   if(botMoveTimer) clearTimeout(botMoveTimer);
-  const delay = info.type==='play' ? 1700 : 1000;
+  const delay = info.type==='play' ? 1700 : (info.type==='dealing' ? 260 : 1000);
   botMoveTimer = setTimeout(async ()=>{
     const cur = await getActiveMatch();
     if(!cur) return;
-    if(cur.phase==='predict'){
+    if(cur.phase==='dealing'){
+      // il mazziere bot distribuisce a turno, una carta a testa (come una
+      // vera distribuzione), non tutte in blocco a un giocatore solo
+      const target = cur.roundActive[cur.dealCursor % cur.roundActive.length];
+      await dealBiscaCard(cur.id, info.playerId, target);
+    } else if(cur.phase==='predict'){
       const cards = SEQ[cur.roundIndex%SEQ.length];
       let pred = botPredict(cur.hands[info.playerId], cards, cur.roundActive.length);
       const vietato = numeroVietato(cur, info.playerId, cards);
@@ -2515,6 +2593,7 @@ async function render(force){
     applyScreenTransition('match');
     if(match.game==='roulette') activateRouletteSpinAnimation();
     if(match.game==='battaglianavale') activateBattleshipShotAnimation(match, claim);
+    if(!match.game) activateBiscaDealAnimation(match);
     scheduleBotMove();
     return;
   }
@@ -2959,12 +3038,6 @@ function seededShuffle(arr, seed){
   const rnd = mulberry32(seed);
   for(let i=arr.length-1;i>0;i--){ const j=Math.floor(rnd()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; }
   return arr;
-}
-function dealRound(seed, roundIndex, activeIds, cardsPerPlayer){
-  const deck = seededShuffle(freshDeck(), (seed|0) + roundIndex*7919);
-  const hands = {}; let idx=0;
-  activeIds.forEach(pid=>{ hands[pid]=deck.slice(idx, idx+cardsPerPlayer); idx+=cardsPerPlayer; });
-  return hands;
 }
 function cardIdx(c){ return c.si*10 + c.ri; }               // 0..39, univoco
 function cardFromIdx(i){
@@ -3442,13 +3515,22 @@ function packMatch(m){
   // partite iniziate con una versione precedente non hanno il seme: le mani non
   // sarebbero ricostruibili, quindi restano nel formato esteso.
   if(m.seed===undefined || m.seed===null) return m;
+  const playerIdx = pid => m.players.findIndex(x=>x.id===pid);
   const p = {
     i:m.id, s:m.seed, t:m.createdAt, L:m.startingLives, r:m.roundIndex,
     ld:m.leaderId, dx:(m.dealerIdx ?? 0), ph:m.phase, rev:m.rev||0,
     pl:m.players.map(x=>[x.name, x.lives, x.eliminated?1:0, x.eliminatedAtRound, x.isBot?1:0]),
     pv:m.previsioni||{}, tw:m.tricksWon||{},
     rp:(m.roundPlays||[]).map(x=>[x.playerId, cardIdx(x.card)]),
-    lg:(m.log||[]).map(r=>[r.round, r.cards, r.entries.map(e=>[e.name, e.previsione, e.prese, e.viteAfter, e.eliminated?1:0])])
+    lg:(m.log||[]).map(r=>[r.round, r.cards, r.entries.map(e=>[e.name, e.previsione, e.prese, e.viteAfter, e.eliminated?1:0])]),
+    // Distribuzione manuale: a chi e' andata ciascuna carta del mazzo (in
+    // ordine) non si puo' ricavare dal seme come il resto — dipende dalle
+    // scelte del mazziere, non e' deterministico — quindi va trasmesso per
+    // esteso, ma solo come indice giocatore (interi piccoli): dc/do bastano
+    // per ricostruire le mani esatte a qualunque punto della distribuzione.
+    dc:m.dealCursor ?? 0,
+    do:(m.dealOrder||[]).map(playerIdx),
+    ldt:m.lastDealt ? [playerIdx(m.lastDealt.toId), m.lastDealt.seq] : null
   };
   if(m.trick) p.tk = {
     pl:m.trick.plays.map(x=>[x.playerId, cardIdx(x.card), x.forcedValue||0]),
@@ -3472,9 +3554,29 @@ function unpackMatch(p){
   };
   m.roundActive = m.players.filter(x=>!x.eliminated).map(x=>x.id);
   m.turnOrder = rotateFromId(m.roundActive, m.leaderId);
-  // ricostruzione delle mani: distribuzione dal seme, meno le carte gia' calate
+  // ricostruzione delle mani: mazzo deterministico dal seme (biscaDealDeckFor),
+  // ma l'assegnazione carta-per-carta segue l'ordine REALE in cui il mazziere
+  // le ha date (m.dealOrder), non un taglio a blocchi fissi — con la
+  // distribuzione manuale due mani diverse possono ricevere le carte in un
+  // ordine qualunque, non necessariamente "tutte le prime N al giocatore 1".
+  // p.do assente = codice/partita di prima di questa funzionalita': in quel
+  // caso la distribuzione era sempre completa e a blocchi, si ricostruisce
+  // allo stesso modo di prima per compatibilita'.
   const cards = SEQ[m.roundIndex % SEQ.length];
-  m.hands = dealRound(m.seed, m.roundIndex, m.roundActive, cards);
+  const dealTotal = m.roundActive.length * cards;
+  m.dealTotal = dealTotal;
+  m.dealCursor = p.dc ?? dealTotal;
+  const deck = biscaDealDeckFor(m);
+  const dealOrderIds = p.do
+    ? p.do.map(idx => m.players[idx] && m.players[idx].id)
+    : m.roundActive.flatMap(pid => Array(cards).fill(pid));
+  m.dealOrder = dealOrderIds.slice(0, m.dealCursor);
+  m.hands = {}; m.roundActive.forEach(pid=>{ m.hands[pid]=[]; });
+  for(let i=0;i<m.dealCursor;i++){
+    const pid = dealOrderIds[i];
+    if(m.hands[pid]) m.hands[pid].push(deck[i]);
+  }
+  m.lastDealt = p.ldt ? { toId: m.players[p.ldt[0]] && m.players[p.ldt[0]].id, seq: p.ldt[1] } : null;
   for(const rp of m.roundPlays){
     const h = m.hands[rp.playerId];
     if(!h) continue;
@@ -3500,10 +3602,27 @@ function starterIdForDealer(match){
   }
   return match.roundActive[0];
 }
+// Il mazzo per la mano corrente e' sempre lo stesso, seme+numero di mano
+// (deterministico): ogni dispositivo lo puo' ricalcolare da solo in
+// qualunque momento, senza doverlo tenere nello stato sincronizzato — e'
+// esattamente la stessa formula che prima usava dealRound() per dare tutte
+// le carte in un colpo solo.
+function biscaDealDeckFor(match){
+  return seededShuffle(freshDeck(), (match.seed|0) + match.roundIndex*7919);
+}
 function startRound(match){
   const active = activeIds(match);
   const cards = SEQ[match.roundIndex % SEQ.length];
-  match.hands = dealRound(match.seed, match.roundIndex, active, cards);
+  // Le mani partono vuote: le carte vere esistono gia' (il mazzo e'
+  // deterministico, vedi biscaDealDeckFor), ma vengono spostate in
+  // match.hands una alla volta dal mazziere durante la fase 'dealing' —
+  // e' proprio questa la distribuzione manuale, non una semplice animazione
+  // sopra un risultato gia' deciso.
+  match.hands = {}; active.forEach(pid=>{ match.hands[pid]=[]; });
+  match.dealCursor = 0;
+  match.dealTotal = active.length * cards;
+  match.dealOrder = []; // a chi e' andata ciascuna carta del mazzo, in ordine — vedi packMatch
+  match.lastDealt = null;
   match.roundActive = active;
   match.roundPlays = [];   // carte gia calate in questa mano, per ricostruire le mani residue
   match.previsioni = {};
@@ -3516,8 +3635,45 @@ function startRound(match){
   }
   match.leaderId = starterIdForDealer(match);
   match.turnOrder = rotateFromId(active, match.leaderId);
-  match.phase = 'predict';
+  match.phase = 'dealing';
   match.trick = null;
+}
+// Il mazziere (umano: un tocco alla volta; bot: vedi scheduleBiscaBotMove)
+// sposta la prossima carta del mazzo deterministico nella mano scelta.
+// Niente distribuzione "automatica dietro le quinte": finche' la fase resta
+// 'dealing', match.hands riflette esattamente le carte gia' davvero date.
+async function dealBiscaCard(matchId, dealerId, toPlayerId){
+  const match = await getActiveMatch();
+  if(!match || match.id!==matchId || match.phase!=='dealing') return;
+  const dealer = match.players[match.dealerIdx];
+  if(!dealer || dealer.id!==dealerId) return; // solo il mazziere di turno puo' distribuire
+  if(!match.roundActive.includes(toPlayerId)) return;
+  if(match.dealCursor>=match.dealTotal) return;
+  const deck = biscaDealDeckFor(match);
+  const card = deck[match.dealCursor];
+  match.hands[toPlayerId].push(card);
+  match.dealOrder = match.dealOrder || [];
+  match.dealOrder.push(toPlayerId);
+  match.dealCursor++;
+  // Niente identita' della carta qui: durante il volo si vede sempre e solo
+  // il dorso (la carta e' ancora coperta), quindi all'animazione basta sapere
+  // CHI l'ha ricevuta, non quale carta sia.
+  match.lastDealt = { toId: toPlayerId, seq: match.dealCursor };
+  await setActiveMatch(match);
+  await render();
+}
+// Quando l'ultima carta e' stata data, la fase passa a 'predict' con un
+// piccolo ritardo (lascia il tempo all'animazione dell'ultima carta di
+// arrivare a schermo prima di cambiare vista) — stesso schema gia' usato per
+// continueAfterTrick/continueAfterBriscolaTrick: ogni dispositivo puo' avere
+// il proprio timer, il controllo sulla fase evita che chi arriva dopo
+// rifaccia il lavoro una seconda volta.
+async function continueAfterBiscaDealing(matchId){
+  const match = await getActiveMatch();
+  if(!match || match.id!==matchId || match.phase!=='dealing' || match.dealCursor<match.dealTotal) return;
+  match.phase = 'predict';
+  await setActiveMatch(match);
+  await render();
 }
 
 function numeroVietato(match, playerId, maxCards){
@@ -8485,7 +8641,7 @@ function risikoShowDiceRoll(attackDice, defendDice, fast){
     const rowHTML = (label, dice, idPrefix) => `
       <div style="text-align:center;">
         <p style="color:#F1ECE1;font-size:13px;margin:0 0 8px;letter-spacing:0.5px;">${esc(label)}</p>
-        <div style="display:flex;gap:10px;justify-content:center;">
+        <div style="display:flex;gap:10px;justify-content:center;perspective:420px;">
           ${dice.map((v,i)=>`<div id="${idPrefix}${i}" style="transition:box-shadow 0.2s;border-radius:16px;">${risikoDieFaceSVG(1,52)}</div>`).join('')}
         </div>
       </div>`;
@@ -8500,6 +8656,15 @@ function risikoShowDiceRoll(attackDice, defendDice, fast){
     const tickMs = fast ? 45 : 80;
     const pauseMs = fast ? 250 : 900;
     const fadeMs = fast ? 0.15 : 0.3;
+    // I dadi non si limitano piu' a cambiare faccia a scatti: ruotano
+    // davvero nello spazio (rotateX/rotateY continui) mentre "rotolano", poi
+    // si fermano con un piccolo rimbalzo sulla faccia vera gia' calcolata —
+    // stessa capriola 3D delle carte in volo, applicata qui al dado intero.
+    const rollDuration = (maxTicks*tickMs)/1000;
+    allDice.forEach(d=>{
+      const el = document.getElementById(d.id);
+      if(el) gsap.to(el, { rotateX:360*(1+Math.random()), rotateY:360*(1+Math.random()), duration:rollDuration, ease:'none' });
+    });
     let ticks = 0;
     const rollInterval = setInterval(()=>{
       ticks++;
@@ -8511,7 +8676,10 @@ function risikoShowDiceRoll(attackDice, defendDice, fast){
         clearInterval(rollInterval);
         allDice.forEach(d=>{
           const el = document.getElementById(d.id);
-          if(el) el.innerHTML = risikoDieFaceSVG(d.finalValue, 52);
+          if(el){
+            el.innerHTML = risikoDieFaceSVG(d.finalValue, 52);
+            gsap.to(el, { rotateX:0, rotateY:0, duration:0.3, ease:'back.out(1.6)' });
+          }
         });
         // evidenzio i confronti vinti/persi (stessa logica di risikoDefend: a parita' vince il difensore)
         const pairs = Math.min(attackDice.length, defendDice.length);
@@ -10742,23 +10910,74 @@ function renderRoundEndBanner(match, myId){
     </div>`;
 }
 
+// Distribuzione manuale: il mazziere di turno tocca un giocatore per dargli
+// la prossima carta del mazzo (coperta — l'animazione mostra sempre e solo
+// il dorso, mai la faccia, come una vera distribuzione). Gli altri vedono la
+// stessa scena in diretta: il conteggio carte di ciascuno cresce e la carta
+// vola visibilmente verso il posto giusto (vedi activateBiscaDealAnimation).
+function renderBiscaDealing(match, myId, revealAll){
+  const cards = SEQ[match.roundIndex % SEQ.length];
+  const dealer = match.players[match.dealerIdx];
+  const isDealer = !revealAll && myId===dealer.id;
+  const myLabel = revealAll ? 'tutti visibili' : esc(nameOf(match,myId));
+  const seats = match.roundActive.map(pid=>{
+    const p = match.players.find(x=>x.id===pid);
+    const n = (match.hands[pid]||[]).length;
+    const done = n>=cards;
+    const clickable = isDealer && !done;
+    return `<div id="deal-seat-${pid}" ${clickable?`onclick="dealBiscaCard('${match.id}','${dealer.id}','${pid}')"`:''}
+        style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 14px;border-radius:12px;min-width:64px;
+        ${clickable?'cursor:pointer;background:rgba(212,175,106,.14);border:1px solid rgba(212,175,106,.5);':'border:1px solid transparent;'}">
+      ${hudAvatar(p.name)}
+      <span style="font-size:12px;text-align:center;">${esc(p.name)}${p.id===dealer.id?' 🂠':''}</span>
+      <span style="font-size:12px;font-weight:700;color:${done?'#8FBF9F':'#D4AF6A'};">${n}/${cards}</span>
+    </div>`;
+  }).join('');
+  const hint = isDealer
+    ? `<p class="hint" style="text-align:center;">Tocca un giocatore per dargli una carta.</p>`
+    : `<p class="hint" style="text-align:center;">${esc(dealer.name)} sta distribuendo le carte…</p>`;
+  return `<div class="card">
+    <div class="toolbar">
+      <span>${hudAvatar(myLabel)}Sei: ${myLabel}</span>
+      <button class="btn-danger btn-small" onclick="abandonMatch()">Abbandona</button>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin:16px 0;">${seats}</div>
+    ${hint}
+  </div>`;
+}
+// Anima in diretta, su OGNI dispositivo, la carta appena data da
+// dealBiscaCard/dealOneCard-del-bot: parte dal centro schermo (come la
+// vecchia distribuzione a raggiera) e vola verso il posto del destinatario.
+// Quando l'ultima carta e' stata data, programma il passaggio alla fase
+// 'predict' con un piccolo ritardo (continueAfterBiscaDealing e' comunque
+// protetta dal controllo di fase, quindi anche se piu' dispositivi
+// programmano lo stesso passaggio non succede nulla di doppio).
+let biscaLastAnimatedDealKey = null;
+function activateBiscaDealAnimation(match){
+  if(match.phase!=='dealing' || !match.lastDealt) return;
+  const key = match.id+'|'+match.roundIndex+'|'+match.lastDealt.seq;
+  if(biscaLastAnimatedDealKey===key) return;
+  biscaLastAnimatedDealKey = key;
+  const toEl = document.getElementById('deal-seat-'+match.lastDealt.toId);
+  if(toEl){
+    const rect = toEl.getBoundingClientRect();
+    const vw = window.innerWidth, vh = window.innerHeight;
+    flyCardImage(CARD_IMG['back'], {left:vw/2, top:vh/2, width:0, height:0}, rect,
+      { width:30, height:42, duration:0.3, rot0: Math.random()*30-15 });
+  }
+  if(match.dealCursor>=match.dealTotal){
+    setTimeout(()=> continueAfterBiscaDealing(match.id), 550);
+  }
+}
+
 function renderMatch(match, claim){
   const cards = SEQ[match.roundIndex % SEQ.length];
   const revealAll = claim.type==='all';
   const myId = claim.type==='seat' ? claim.playerId : null;
   const myLabel = revealAll ? 'tutti visibili' : esc(nameOf(match,myId));
 
-  if(myId && match.phase!=='roundEnd' && match.phase!=='ended'){
-    const dealKey = 'bisca|'+match.id+'|'+match.roundIndex;
-    if(!(dealKey in dealTableAnimState)){
-      dealTableAnimState[dealKey] = 'started';
-      const ids = match.players.map(p=>p.id);
-      const names = ids.map(id=>nameOf(match,id));
-      cardFxDealTable(names, ids.indexOf(myId), cards, {
-        onDone: ()=>{ dealTableAnimState[dealKey]='done'; lastRenderKey=null; render(true); }
-      });
-    }
-    if(dealTableAnimState[dealKey]==='started') return dealWaitingScreenHTML('Bisca · '+myLabel);
+  if(match.phase==='dealing'){
+    return renderBiscaDealing(match, myId, revealAll)+renderLog(match);
   }
 
   if(match.phase==='roundEnd'){
@@ -11729,7 +11948,19 @@ function f4BoardSVG(match, myId, canInteract){
   const boardH = F4_ROWS*cellSize + padding*2 + topOffset;
   const winSet = new Set((match.winLine||[]).map(([r,c])=>r+'-'+c));
 
-  let cells = '';
+  // I gettoni non sono piu' dischi piatti a tinta unica: un gradiente radiale
+  // (chiaro in alto a sinistra, scuro sul bordo) piu' un'ombra ellittica sotto
+  // ciascun gettone gia' caduto danno l'illusione di una sferetta di
+  // plastica vera, non di un cerchio disegnato.
+  const defs = `<defs>
+    <radialGradient id="f4-disc-R" cx="35%" cy="28%" r="75%">
+      <stop offset="0%" stop-color="#F3A2A8"/><stop offset="55%" stop-color="#D64550"/><stop offset="100%" stop-color="#96262F"/>
+    </radialGradient>
+    <radialGradient id="f4-disc-Y" cx="35%" cy="28%" r="75%">
+      <stop offset="0%" stop-color="#FCE7B2"/><stop offset="55%" stop-color="#E8B94A"/><stop offset="100%" stop-color="#AD8028"/>
+    </radialGradient>
+  </defs>`;
+  let cells = '', shadows = '';
   for(let r=0;r<F4_ROWS;r++){
     for(let c=0;c<F4_COLS;c++){
       const cx = padding + c*cellSize + cellSize/2;
@@ -11737,7 +11968,10 @@ function f4BoardSVG(match, myId, canInteract){
       const color = match.grid[r][c];
       const isWin = winSet.has(r+'-'+c);
       const isNew = match.lastMove && match.lastMove.row===r && match.lastMove.col===c;
-      cells += `<circle cx="${cx}" cy="${cy}" r="${cellSize/2-4}" fill="${color?f4ColorHex(color):'#0A1410'}" stroke="${isWin?'#D4AF6A':'#0F2040'}" stroke-width="${isWin?3.5:2}" class="${isNew?'f4-drop-in':''}"/>`;
+      const rad = cellSize/2-4;
+      if(color) shadows += `<ellipse cx="${cx}" cy="${(cy+rad*0.7).toFixed(1)}" rx="${(rad*0.7).toFixed(1)}" ry="${(rad*0.22).toFixed(1)}" fill="#000" opacity="0.3"/>`;
+      const fill = color ? `url(#f4-disc-${color==='R'?'R':'Y'})` : '#0A1410';
+      cells += `<circle cx="${cx}" cy="${cy}" r="${rad}" fill="${fill}" stroke="${isWin?'#D4AF6A':'#0F2040'}" stroke-width="${isWin?3.5:2}" class="${isNew?'f4-drop-in':''}"/>`;
     }
   }
   let clickAreas = '';
@@ -11756,7 +11990,9 @@ function f4BoardSVG(match, myId, canInteract){
   }
   return `
     <svg viewBox="0 0 ${boardW} ${boardH}" width="100%" style="max-width:min(380px, 88vw, 34vh);display:block;margin:0 auto;">
+      ${defs}
       <rect x="0" y="${topOffset}" width="${boardW}" height="${boardH-topOffset}" rx="14" fill="#1E3A8A" stroke="#16265A" stroke-width="2"/>
+      ${shadows}
       ${cells}
       ${clickAreas}
     </svg>`;
@@ -11880,6 +12116,11 @@ function bsGridHTML(board, opts){
   const colLabelW = 16;
   const totalW = colLabelW + BS_SIZE*(cellSize+gap);
   const totalH = cellSize+gap + BS_SIZE*(cellSize+gap);
+  // Ultimo colpo sparato su QUESTA griglia (puo' essere la propria, se e'
+  // stato l'avversario a colpire): serve solo per animare quella singola
+  // cella (impatto/splash), i colpi precedenti restano ai loro segni statici.
+  const lastCoord = opts.lastShotCoord || null;
+  const lastHit = !!opts.lastShotHit;
 
   let html = `<div style="position:relative;max-width:min(${totalW}px, 90vw, ${opts.vhBudget||32}vh);margin:0 auto;">`;
   html += `<div style="display:grid;grid-template-columns:${colLabelW}px repeat(${BS_SIZE},1fr);grid-template-rows:${cellSize}px repeat(${BS_SIZE},1fr);gap:${gap}px;">`;
@@ -11944,10 +12185,29 @@ function bsGridHTML(board, opts){
       const cx = colLabelW+gap + (c-1)*(cellSize+gap) + cellSize/2;
       const cy = cellSize+gap + ri*(cellSize+gap) + cellSize/2;
       const s = cellSize*0.28;
+      const isNew = lastHit && coord===lastCoord;
+      // Un colpo appena andato a segno ha in piu' un lampo d'esplosione dietro
+      // la X (si spegne da solo) e la X stessa "scatta" con un piccolo rimbalzo
+      // invece di comparire gia' ferma.
+      if(isNew) overlaySvg += `<circle class="bs-hit-flash" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(cellSize*0.42).toFixed(1)}" fill="#FF6B4A"/>`;
+      overlaySvg += `<g class="${isNew?'bs-hit-new':''}">`;
       overlaySvg += `<line x1="${(cx-s).toFixed(1)}" y1="${(cy-s).toFixed(1)}" x2="${(cx+s).toFixed(1)}" y2="${(cy+s).toFixed(1)}" stroke="#F1ECE1" stroke-width="2.4" stroke-linecap="round"/>`;
       overlaySvg += `<line x1="${(cx+s).toFixed(1)}" y1="${(cy-s).toFixed(1)}" x2="${(cx-s).toFixed(1)}" y2="${(cy+s).toFixed(1)}" stroke="#F1ECE1" stroke-width="2.4" stroke-linecap="round"/>`;
+      overlaySvg += `</g>`;
     }
   });
+  // Un colpo appena andato a vuoto: un cerchietto d'acqua che si allarga e
+  // sparisce, al posto del semplice puntino statico gia' disegnato nella
+  // cella stessa (quello resta, questo e' solo l'effetto in piu' al momento).
+  if(lastCoord && !lastHit){
+    const rowIdx = BS_ROWS.indexOf(lastCoord[0]);
+    const col = parseInt(lastCoord.slice(1),10);
+    if(rowIdx>=0){
+      const cx = colLabelW+gap + (col-1)*(cellSize+gap) + cellSize/2;
+      const cy = cellSize+gap + rowIdx*(cellSize+gap) + cellSize/2;
+      overlaySvg += `<circle class="bs-miss-new" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(cellSize*0.3).toFixed(1)}" fill="none" stroke="#9FD8EA" stroke-width="2"/>`;
+    }
+  }
   if(overlaySvg) html += `<svg width="${totalW}" height="${totalH}" viewBox="0 0 ${totalW} ${totalH}" style="position:absolute;top:0;left:0;pointer-events:none;">${overlaySvg}</svg>`;
   html += `</div>`;
   return html;
@@ -12178,8 +12438,11 @@ function renderBattleshipMatch(match, claim){
   // max-width imposto dopo via CSS sulla riga di intestazione a altezza fissa.
   const atkCellSize = isLandscape ? (shortHeight ? 15 : 19) : (shortHeight ? 16 : 22);
   const defCellSize = isLandscape ? (shortHeight ? 13 : 17) : (shortHeight ? 14 : 19);
-  const attackGrid = bsGridHTML(match.boards[opponentId], { revealShips:false, cellSize:atkCellSize, clickable:canAttack, clickAction:`bsShootAt.bind(null,'${match.id}','${myId}')`, idPrefix:'bs-atk', vhBudget:40 });
-  const myGrid = bsGridHTML(match.boards[myId||match.turnOrder[0]], { revealShips:true, cellSize:defCellSize, idPrefix:'bs-def', vhBudget:40 });
+  const defendingId = myId||match.turnOrder[0];
+  const lastShotOnAttack = match.lastShot && match.lastShot.targetId===opponentId ? match.lastShot : null;
+  const lastShotOnDefense = match.lastShot && match.lastShot.targetId===defendingId ? match.lastShot : null;
+  const attackGrid = bsGridHTML(match.boards[opponentId], { revealShips:false, cellSize:atkCellSize, clickable:canAttack, clickAction:`bsShootAt.bind(null,'${match.id}','${myId}')`, idPrefix:'bs-atk', vhBudget:40, lastShotCoord: lastShotOnAttack&&lastShotOnAttack.coord, lastShotHit: lastShotOnAttack&&lastShotOnAttack.hit });
+  const myGrid = bsGridHTML(match.boards[defendingId], { revealShips:true, cellSize:defCellSize, idPrefix:'bs-def', vhBudget:40, lastShotCoord: lastShotOnDefense&&lastShotOnDefense.coord, lastShotHit: lastShotOnDefense&&lastShotOnDefense.hit });
   const lastShotHtml = match.lastShot ? `<div class="turn-banner">${bsLastShotText(match)}</div>` : '';
 
   // recap della flotta avversaria: quali navi sono gia' state affondate, cosi'
@@ -12280,6 +12543,7 @@ function damaBoardHTML(match, myId, revealAll){
   const selectable = canPlay ? damaSelectableSquares(match, player.color) : new Set();
   const destinations = (canPlay && damaSelected) ? damaLegalOptionsFor(match, player.color, damaSelected.r, damaSelected.c).map(o=>{ const last=o.path[o.path.length-1]; return last.r+'_'+last.c; }) : [];
   const cellSize = 34;
+  const lm = match.lastMove;
   let html = `<div style="display:grid;grid-template-columns:repeat(8,1fr);gap:1px;max-width:min(${8*(cellSize+1)}px, 90vw, 40vh);margin:0 auto;background:#0A1410;padding:4px;border-radius:8px;">`;
   for(let r=0;r<8;r++){
     for(let c=0;c<8;c++){
@@ -12297,7 +12561,20 @@ function damaBoardHTML(match, myId, revealAll){
         const fill = piece.color==='W' ? '#F1ECE1' : '#241812';
         const ring = piece.color==='W' ? '#B8A88C' : '#4A3826';
         const glow = (isSelectable && !isSelected) ? 'box-shadow:0 0 0 3px #D4AF6A, 0 2px 3px rgba(0,0,0,0.4);' : 'box-shadow:0 2px 3px rgba(0,0,0,0.4);';
-        pieceHtml = `<div style="width:78%;height:78%;border-radius:50%;background:${fill};border:2.5px solid ${ring};display:flex;align-items:center;justify-content:center;${glow}">${piece.king?`<span style="font-size:min(${cellSize*0.42}px, 4.725vw, 2.1vh);">♛</span>`:''}</div>`;
+        const circle = `<div style="width:78%;height:78%;border-radius:50%;background:${fill};border:2.5px solid ${ring};display:flex;align-items:center;justify-content:center;${glow}">${piece.king?`<span style="font-size:min(${cellSize*0.42}px, 4.725vw, 2.1vh);">♛</span>`:''}</div>`;
+        // La pedina appena arrivata scivola dalla casella di partenza a quella
+        // di arrivo (percentuali della cella, non pixel fissi: la griglia e'
+        // responsive e puo' rimpicciolire su schermi stretti). Un wrapper a
+        // tutta cella porta il movimento, cosi' il 100% coincide sempre con
+        // un passo intero anche se il cerchio dentro e' piu' piccolo.
+        const isLandingSquare = lm && lm.to.r===r && lm.to.c===c;
+        if(isLandingSquare){
+          const dx = (lm.from.c - lm.to.c) * 100, dy = (lm.from.r - lm.to.r) * 100;
+          const promoteClass = lm.becameKing ? ' board-promote-glow' : '';
+          pieceHtml = `<div class="board-slide-in${promoteClass}" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;--dx:${dx}%;--dy:${dy}%;">${circle}</div>`;
+        } else {
+          pieceHtml = circle;
+        }
       }
       html += `<div ${clickable?`onclick="damaCellClick('${match.id}','${myId}',${r},${c})"`:''} style="width:100%;aspect-ratio:1;background:${bg};display:flex;align-items:center;justify-content:center;${clickable?'cursor:pointer;':''}">${pieceHtml}</div>`;
     }
@@ -12426,7 +12703,19 @@ function chessBoardHTML(match, myId, revealAll){
       let pieceHtml = '';
       if(piece){
         const glow = (isSelectable && !isSelected) ? 'text-shadow:0 0 6px #D4AF6A, 0 0 6px #D4AF6A;' : '';
-        pieceHtml = `<span style="font-size:min(${cellSize*0.75}px, 8.4375vw, 3.75vh);line-height:1;${glow}filter:drop-shadow(0 1px 1px rgba(0,0,0,0.5));">${CHESS_SYMBOLS[piece.color][piece.type]}</span>`;
+        const symbol = `<span style="font-size:min(${cellSize*0.75}px, 8.4375vw, 3.75vh);line-height:1;${glow}filter:drop-shadow(0 1px 1px rgba(0,0,0,0.5));">${CHESS_SYMBOLS[piece.color][piece.type]}</span>`;
+        // Come in Dama: il pezzo appena mosso scivola dalla casella di
+        // partenza (percentuali della cella, non pixel — griglia responsive).
+        // L'arrocco muove due pezzi ma lastMove registra solo il re: la torre
+        // resta senza scivolamento, limite accettato.
+        const isLandingSquare = match.lastMove && match.lastMove.to.r===r && match.lastMove.to.c===c;
+        if(isLandingSquare){
+          const dx = (match.lastMove.from.c - c) * 100, dy = (match.lastMove.from.r - r) * 100;
+          const promoteClass = match.lastMove.promo ? ' board-promote-glow' : '';
+          pieceHtml = `<span class="board-slide-in${promoteClass}" style="display:flex;width:100%;height:100%;align-items:center;justify-content:center;--dx:${dx}%;--dy:${dy}%;">${symbol}</span>`;
+        } else {
+          pieceHtml = symbol;
+        }
       }
       html += `<div ${clickable?`onclick="chessCellClick('${match.id}','${myId}',${r},${c})"`:''} style="width:100%;aspect-ratio:1;background:${bg};display:flex;align-items:center;justify-content:center;${clickable?'cursor:pointer;':''}">${pieceHtml}</div>`;
     }
@@ -12622,8 +12911,16 @@ function rouletteWheelSVG(spinning, resultNumber){
   }
   const outerBallR = R + rimW*0.55;
   const innerBallR = R*0.50;
-  return `<div style="display:flex;justify-content:center;margin:14px 0;">
-    <div style="position:relative;width:${size}px;height:${size}px;">
+  // La ruota e' vista di taglio, inclinata come un vero tavolo da roulette,
+  // invece che dritta dall'alto: un rotateX rigido su TUTTO l'assieme (le due
+  // SVG piu' la pallina), non un ricalcolo della fisica dello spin — la
+  // pallina resta posizionata con le stesse coordinate locali piatte
+  // (left/top dentro questo stesso contenitore), l'inclinazione la applica
+  // il browser un livello sopra, quindi il moto calcolato in
+  // activateRouletteSpinAnimation non cambia di una virgola.
+  return `<div style="position:relative;display:flex;justify-content:center;margin:14px 0;perspective:900px;">
+      <div style="position:absolute;left:50%;bottom:6px;width:${size*0.78}px;height:${size*0.16}px;transform:translateX(-50%);background:radial-gradient(ellipse at center, rgba(0,0,0,.45), transparent 72%);"></div>
+    <div style="position:relative;width:${size}px;height:${size}px;transform:rotateX(42deg);transform-origin:50% 88%;">
       <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="position:absolute;inset:0;">
         <defs>
           <radialGradient id="rg-rim" cx="35%" cy="35%" r="75%">
