@@ -239,6 +239,14 @@ body.force-share.in-match #sync-panel{display:block !important;}
 
 /* ---------- Tavolo e animazioni ---------- */
 .table-wrap{display:flex;justify-content:center;margin:0 -18px 16px;}
+/* Il tavolo (SVG quadrata, un lato = l'altro) puntava solo a un max-width
+   fisso: su schermi bassi in orizzontale (telefono ruotato) i 420px di
+   altezza implicita superavano da soli l'intera finestra, ben prima di
+   toolbar/mano/log — un limite mai emerso perche' la vecchia "distribuzione
+   in corso" copriva sempre lo schermo nell'istante in cui veniva misurato.
+   Il max-height in vh non cambia nulla quando c'e' spazio (i telefoni in
+   verticale restano a 420px come prima), scatta solo quando serve davvero. */
+.table-svg{max-width:420px;max-height:min(420px, 50vh);aspect-ratio:1/1;display:block;height:auto;margin:0 auto;}
 
 @keyframes turnPulse{
   0%,100%{opacity:.35;stroke-width:2;}
@@ -4073,9 +4081,15 @@ function renderTableSVG(match, cards, revealAll, myId){
   // dimensioni della carta giocata sul tavolo (costanti per tutti i posti in questo render)
   const cardSc = C.cardScale*fs;
   const cardW = 52*cardSc, cardH = 108*cardSc;
-  const turnId = match.phase==='play'
-    ? (match.trick.resolved ? null : match.trick.turnOrder[match.trick.plays.length])
-    : match.turnOrder.find(id=>match.previsioni[id]===undefined);
+  const turnId = match.phase==='dealing'
+    ? match.players[match.dealerIdx].id
+    : match.phase==='play'
+      ? (match.trick.resolved ? null : match.trick.turnOrder[match.trick.plays.length])
+      : match.turnOrder.find(id=>match.previsioni[id]===undefined);
+  // Durante la distribuzione manuale, il mazziere tocca DIRETTAMENTE il
+  // posto del giocatore sul tavolo per dargli una carta — niente schermata a
+  // parte, si resta a guardare lo stesso tavolo per tutta la mano.
+  const canDeal = match.phase==='dealing' && !revealAll && myId===match.players[match.dealerIdx].id;
   const layout = rectSeatLayout(half, half, n);
 
   let seats = '';
@@ -4178,9 +4192,11 @@ function renderTableSVG(match, cards, revealAll, myId){
       turnDotSvg = `<circle class="turn-dot" cx="${dx2}" cy="${dy2}" r="${5*fs}" fill="#D4AF6A" stroke="#16261F" stroke-width="1.2"/>`;
     }
 
+    const dealableHere = canDeal && cardsLeft<cards;
     seats += `
-      <g>
+      <g id="table-seat-${pid}" ${dealableHere?`onclick="dealBiscaCard('${match.id}','${myId}','${pid}')" style="cursor:pointer;"`:''}>
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
+        ${dealableHere?`<circle cx="${x}" cy="${y}" r="${avatarR+9}" fill="none" stroke="#D4AF6A" stroke-width="1.4" stroke-dasharray="3,3"><animateTransform attributeName="transform" type="rotate" from="0 ${x} ${y}" to="360 ${x} ${y}" dur="6s" repeatCount="indefinite"/></circle>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':'#3C5A4C')}" stroke-width="${isTurn?2.4:1.8}"/>
         <rect x="${x-9*fs}" y="${y-13*fs}" width="${18*fs}" height="${26*fs}" rx="3" fill="url(#table-cardback)" stroke="#8C7647" stroke-width="1"/>
         <circle cx="${x+9*fs}" cy="${y+10*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
@@ -4232,7 +4248,7 @@ function renderTableSVG(match, cards, revealAll, myId){
 
   return `
     <div class="table-wrap">
-      <svg viewBox="0 0 ${VB} ${VB}" width="100%" style="max-width:420px;aspect-ratio:1/1;display:block;height:auto;">
+      <svg viewBox="0 0 ${VB} ${VB}" width="100%" class="table-svg">
         ${tableDefs}
         <rect x="${cx-half-woodPad}" y="${cy-half-woodPad}" width="${2*(half+woodPad)}" height="${2*(half+woodPad)}" rx="${woodR}" fill="url(#woodGrad)" stroke="#2A1A0D" stroke-width="2"/>
         <rect x="${cx-half-woodPad}" y="${cy-half-woodPad}" width="${2*(half+woodPad)}" height="${2*(half+woodPad)}" rx="${woodR}" fill="#000" filter="url(#woodGrain)"/>
@@ -4240,7 +4256,7 @@ function renderTableSVG(match, cards, revealAll, myId){
         <rect x="${cx-centerHalf}" y="${cy-centerHalf}" width="${2*centerHalf}" height="${2*centerHalf}" rx="${centerR}" fill="url(#centerGrad)" stroke="#3C5A4C" stroke-width="1.2"/>
         <text x="${cx}" y="${cy-9*fs}" text-anchor="middle" font-family="'Fraunces',serif" font-size="${15*fs}" font-weight="700" fill="#D4AF6A">Mano ${match.roundIndex+1}</text>
         <text x="${cx}" y="${cy+7*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${10*fs}" fill="#B9C4BC">${cards} cart${cards===1?'a':'e'}</text>
-        <text x="${cx}" y="${cy+22*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9*fs}" fill="#6C8078">${trickNo!==null?'presa '+trickNo:'previsioni'}</text>
+        <text x="${cx}" y="${cy+22*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9*fs}" fill="#6C8078">${trickNo!==null?'presa '+trickNo:(match.phase==='dealing'?'distribuzione':'previsioni')}</text>
         ${seats}
         ${turnDotSvg}
         ${flowArrowSvg}
@@ -4385,7 +4401,7 @@ function renderScopaTableSVG(match, myId){
 
   return `
     <div class="table-wrap">
-      <svg viewBox="0 0 ${VB} ${VB}" width="100%" style="max-width:420px;aspect-ratio:1/1;display:block;height:auto;">
+      <svg viewBox="0 0 ${VB} ${VB}" width="100%" class="table-svg">
         ${tableDefs}
         <rect x="${cx-half-outerPad}" y="${cy-half-outerPad}" width="${2*(half+outerPad)}" height="${2*(half+outerPad)}" rx="${feltR}" fill="url(#feltGrad2)" stroke="#4A6B5B" stroke-width="2"/>
         <rect x="${cx-centerHalf}" y="${cy-centerHalf}" width="${2*centerHalf}" height="${2*centerHalf}" rx="${centerR}" fill="url(#centerGrad2)" stroke="#3C5A4C" stroke-width="1.2"/>
@@ -4991,7 +5007,7 @@ function renderBriscolaTableSVG(match, myId){
   const flowArrowSvg = turnFlowArrowSVG(layout, curIdx, nextIdx, cx, cy, fs, avatarR, centerHalf);
   return `
     <div class="table-wrap">
-      <svg viewBox="0 0 ${VB} ${VB}" width="100%" style="max-width:420px;aspect-ratio:1/1;display:block;height:auto;">
+      <svg viewBox="0 0 ${VB} ${VB}" width="100%" class="table-svg">
         ${tableDefs}
         <rect x="${cx-half-outerPad}" y="${cy-half-outerPad}" width="${2*(half+outerPad)}" height="${2*(half+outerPad)}" rx="${feltR}" fill="url(#feltGrad3)" stroke="#4A6B5B" stroke-width="2"/>
         <rect x="${cx-centerHalf}" y="${cy-centerHalf}" width="${2*centerHalf}" height="${2*centerHalf}" rx="${centerR}" fill="url(#centerGrad3)" stroke="#3C5A4C" stroke-width="1.2"/>
@@ -5383,7 +5399,7 @@ function renderVeciaTableSVG(match, myId){
   const flowArrowSvg = turnFlowArrowSVG(layout, curIdx, nextIdx, cx, cy, fs, avatarR, centerHalf);
   return `
     <div class="table-wrap">
-      <svg viewBox="0 0 ${VB} ${VB}" width="100%" style="max-width:420px;aspect-ratio:1/1;display:block;height:auto;">
+      <svg viewBox="0 0 ${VB} ${VB}" width="100%" class="table-svg">
         ${tableDefs}
         <rect x="${cx-half-outerPad}" y="${cy-half-outerPad}" width="${2*(half+outerPad)}" height="${2*(half+outerPad)}" rx="${feltR}" fill="url(#feltGrad4)" stroke="#4A6B5B" stroke-width="2"/>
         <rect x="${cx-centerHalf}" y="${cy-centerHalf}" width="${2*centerHalf}" height="${2*centerHalf}" rx="${centerR}" fill="url(#centerGrad4)" stroke="#3C5A4C" stroke-width="1.2"/>
@@ -5792,7 +5808,7 @@ function renderCavaCamisaTableSVG(match, myId){
   const flowArrowSvg = turnFlowArrowSVG(layout, curIdx, nextIdx, cx, cy, fs, avatarR, centerHalf);
   return `
     <div class="table-wrap">
-      <svg viewBox="0 0 ${VB} ${VB}" width="100%" style="max-width:420px;aspect-ratio:1/1;display:block;height:auto;">
+      <svg viewBox="0 0 ${VB} ${VB}" width="100%" class="table-svg">
         ${tableDefs}
         <rect x="${cx-half-outerPad}" y="${cy-half-outerPad}" width="${2*(half+outerPad)}" height="${2*(half+outerPad)}" rx="${feltR}" fill="url(#feltGrad5)" stroke="#4A6B5B" stroke-width="2"/>
         <rect x="${cx-centerHalf}" y="${cy-centerHalf}" width="${2*centerHalf}" height="${2*centerHalf}" rx="${centerR}" fill="url(#centerGrad5)" stroke="#3C5A4C" stroke-width="1.2"/>
@@ -10668,7 +10684,7 @@ function unoTableSVG(match, myId){
   const flowArrowSvg = turnFlowArrowSVG(layout, curIdx, nextIdx, cx, cy, fs, avatarR, centerHalf);
   return `
     <div class="table-wrap">
-      <svg viewBox="0 0 ${VB} ${VB}" width="100%" style="max-width:420px;aspect-ratio:1/1;display:block;height:auto;">
+      <svg viewBox="0 0 ${VB} ${VB}" width="100%" class="table-svg">
         ${tableDefs}
         <rect x="${cx-half-outerPad}" y="${cy-half-outerPad}" width="${2*(half+outerPad)}" height="${2*(half+outerPad)}" rx="${feltR}" fill="url(#feltGrad6)" stroke="#4A6B5B" stroke-width="2"/>
         <rect x="${cx-centerHalf}" y="${cy-centerHalf}" width="${2*centerHalf}" height="${2*centerHalf}" rx="${centerR}" fill="url(#centerGrad6)" stroke="#3C5A4C" stroke-width="1.2"/>
@@ -10915,39 +10931,22 @@ function renderRoundEndBanner(match, myId){
 // il dorso, mai la faccia, come una vera distribuzione). Gli altri vedono la
 // stessa scena in diretta: il conteggio carte di ciascuno cresce e la carta
 // vola visibilmente verso il posto giusto (vedi activateBiscaDealAnimation).
-function renderBiscaDealing(match, myId, revealAll){
-  const cards = SEQ[match.roundIndex % SEQ.length];
+// Distribuzione manuale: niente schermata a parte, si resta a guardare lo
+// stesso tavolo di sempre. I posti cliccabili (bordo tratteggiato dorato) e
+// i conteggi carte per giocatore sono disegnati direttamente da
+// renderTableSVG (canDeal/dealableHere) — qui serve solo il testo sotto il
+// tavolo che spiega cosa fare.
+function renderDealingBody(match, myId, revealAll){
   const dealer = match.players[match.dealerIdx];
   const isDealer = !revealAll && myId===dealer.id;
-  const myLabel = revealAll ? 'tutti visibili' : esc(nameOf(match,myId));
-  const seats = match.roundActive.map(pid=>{
-    const p = match.players.find(x=>x.id===pid);
-    const n = (match.hands[pid]||[]).length;
-    const done = n>=cards;
-    const clickable = isDealer && !done;
-    return `<div id="deal-seat-${pid}" ${clickable?`onclick="dealBiscaCard('${match.id}','${dealer.id}','${pid}')"`:''}
-        style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 14px;border-radius:12px;min-width:64px;
-        ${clickable?'cursor:pointer;background:rgba(212,175,106,.14);border:1px solid rgba(212,175,106,.5);':'border:1px solid transparent;'}">
-      ${hudAvatar(p.name)}
-      <span style="font-size:12px;text-align:center;">${esc(p.name)}${p.id===dealer.id?' 🂠':''}</span>
-      <span style="font-size:12px;font-weight:700;color:${done?'#8FBF9F':'#D4AF6A'};">${n}/${cards}</span>
-    </div>`;
-  }).join('');
-  const hint = isDealer
-    ? `<p class="hint" style="text-align:center;">Tocca un giocatore per dargli una carta.</p>`
+  return isDealer
+    ? `<p class="hint" style="text-align:center;">Tocca un posto al tavolo per dargli una carta.</p>`
     : `<p class="hint" style="text-align:center;">${esc(dealer.name)} sta distribuendo le carte…</p>`;
-  return `<div class="card">
-    <div class="toolbar">
-      <span>${hudAvatar(myLabel)}Sei: ${myLabel}</span>
-      <button class="btn-danger btn-small" onclick="abandonMatch()">Abbandona</button>
-    </div>
-    <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin:16px 0;">${seats}</div>
-    ${hint}
-  </div>`;
 }
 // Anima in diretta, su OGNI dispositivo, la carta appena data da
-// dealBiscaCard/dealOneCard-del-bot: parte dal centro schermo (come la
-// vecchia distribuzione a raggiera) e vola verso il posto del destinatario.
+// dealBiscaCard/dealOneCard-del-bot: parte dal centro del tavolo (dove sta
+// gia' il mazzetto disegnato da renderTableSVG) e vola verso il posto del
+// destinatario, esattamente sullo stesso tavolo che si sta gia' guardando.
 // Quando l'ultima carta e' stata data, programma il passaggio alla fase
 // 'predict' con un piccolo ritardo (continueAfterBiscaDealing e' comunque
 // protetta dal controllo di fase, quindi anche se piu' dispositivi
@@ -10958,12 +10957,13 @@ function activateBiscaDealAnimation(match){
   const key = match.id+'|'+match.roundIndex+'|'+match.lastDealt.seq;
   if(biscaLastAnimatedDealKey===key) return;
   biscaLastAnimatedDealKey = key;
-  const toEl = document.getElementById('deal-seat-'+match.lastDealt.toId);
-  if(toEl){
+  const toEl = document.getElementById('table-seat-'+match.lastDealt.toId);
+  const tableEl = document.querySelector('.table-wrap');
+  if(toEl && tableEl){
     const rect = toEl.getBoundingClientRect();
-    const vw = window.innerWidth, vh = window.innerHeight;
-    flyCardImage(CARD_IMG['back'], {left:vw/2, top:vh/2, width:0, height:0}, rect,
-      { width:30, height:42, duration:0.3, rot0: Math.random()*30-15 });
+    const tRect = tableEl.getBoundingClientRect();
+    const from = { left: tRect.left+tRect.width/2, top: tRect.top+tRect.height/2, width:0, height:0 };
+    flyCardImage(CARD_IMG['back'], from, rect, { width:26, height:36, duration:0.3, rot0: Math.random()*30-15 });
   }
   if(match.dealCursor>=match.dealTotal){
     setTimeout(()=> continueAfterBiscaDealing(match.id), 550);
@@ -10975,10 +10975,6 @@ function renderMatch(match, claim){
   const revealAll = claim.type==='all';
   const myId = claim.type==='seat' ? claim.playerId : null;
   const myLabel = revealAll ? 'tutti visibili' : esc(nameOf(match,myId));
-
-  if(match.phase==='dealing'){
-    return renderBiscaDealing(match, myId, revealAll)+renderLog(match);
-  }
 
   if(match.phase==='roundEnd'){
     return `
@@ -10993,18 +10989,22 @@ function renderMatch(match, claim){
     `;
   }
 
-  let body = match.phase==='predict' ? renderPredict(match, cards, revealAll, myId) : renderPlay(match, cards, revealAll, myId);
+  let body = match.phase==='dealing' ? renderDealingBody(match, myId, revealAll)
+    : match.phase==='predict' ? renderPredict(match, cards, revealAll, myId) : renderPlay(match, cards, revealAll, myId);
 
   // --- chi ha il turno adesso, detto in modo inequivocabile
-  const turnId = match.phase==='play'
-    ? (match.trick && match.trick.resolved ? null : match.trick.turnOrder[match.trick.plays.length])
-    : match.turnOrder.find(id=>match.previsioni[id]===undefined);
+  const turnId = match.phase==='dealing'
+    ? match.players[match.dealerIdx].id
+    : match.phase==='play'
+      ? (match.trick && match.trick.resolved ? null : match.trick.turnOrder[match.trick.plays.length])
+      : match.turnOrder.find(id=>match.previsioni[id]===undefined);
   let turnBar = '';
   if(turnId){
     const isMine = revealAll || turnId===myId;
+    const verb = match.phase==='dealing' ? 'distribuendo' : 'giocando';
     turnBar = `<div class="turn-bar ${isMine?'mine':''}">${isMine
-      ? (revealAll ? 'Tocca a <b>'+esc(nameOf(match,turnId))+'</b>' : '► TOCCA A TE')
-      : 'Sta giocando <b>'+esc(nameOf(match,turnId))+'</b> — aspetta <button class="refresh-mini" onclick="forceResync()" title="Aggiorna">⟳</button>'}</div>`;
+      ? (revealAll ? 'Tocca a <b>'+esc(nameOf(match,turnId))+'</b>' : (match.phase==='dealing' ? '► TOCCA UN POSTO AL TAVOLO PER DISTRIBUIRE' : '► TOCCA A TE'))
+      : 'Sta '+verb+' <b>'+esc(nameOf(match,turnId))+'</b> — aspetta <button class="refresh-mini" onclick="forceResync()" title="Aggiorna">⟳</button>'}</div>`;
   }
 
   // --- avviso onesto quando le nostre mosse non stanno arrivando agli altri
@@ -11418,7 +11418,7 @@ function scala40TableSVG(match, myId){
   const outerPad = 30*fs, feltR = 20*fs;
   return `
     <div class="table-wrap">
-      <svg viewBox="0 0 ${VB} ${VB}" width="100%" style="max-width:420px;aspect-ratio:1/1;display:block;height:auto;">
+      <svg viewBox="0 0 ${VB} ${VB}" width="100%" class="table-svg">
         ${tableDefs}
         <rect x="${cx-half-outerPad}" y="${cy-half-outerPad}" width="${2*(half+outerPad)}" height="${2*(half+outerPad)}" rx="${feltR}" fill="url(#feltGrad40)" stroke="#4A6B5B" stroke-width="2"/>
         <text x="${cx}" y="${cy-2*fs}" text-anchor="middle" font-family="'Fraunces',serif" font-size="${13*fs}" font-weight="700" fill="#D4AF6A">Scala 40</text>
