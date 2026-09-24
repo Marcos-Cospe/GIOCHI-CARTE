@@ -1256,6 +1256,9 @@ function cancelAceChoice(){
 }
 
 function currentTurnInfo(match){
+  if(match.phase==='dealing'){
+    return {type:'dealing', playerId: match.players[match.dealerIdx].id};
+  }
   if(match.phase==='predict'){
     return {type:'predict', playerId: match.turnOrder.find(id=>match.previsioni[id]===undefined)};
   }
@@ -1330,15 +1333,20 @@ async function scheduleBiscaBotMove(match){
   if(!player || !player.isBot){ botMoveKey=null; return; }
 
   const key = match.id+'|'+match.roundIndex+'|'+info.type+'|'+info.playerId+'|'+
-    (match.phase==='play'?match.trick.plays.length:Object.keys(match.previsioni).length);
+    (info.type==='dealing' ? match.dealCursor : (match.phase==='play'?match.trick.plays.length:Object.keys(match.previsioni).length));
   if(botMoveKey===key) return;
   botMoveKey = key;
   if(botMoveTimer) clearTimeout(botMoveTimer);
-  const delay = info.type==='play' ? 1700 : 1000;
+  const delay = info.type==='play' ? 1700 : (info.type==='dealing' ? 260 : 1000);
   botMoveTimer = setTimeout(async ()=>{
     const cur = await getActiveMatch();
     if(!cur) return;
-    if(cur.phase==='predict'){
+    if(cur.phase==='dealing'){
+      // il mazziere bot distribuisce a turno, una carta a testa (come una
+      // vera distribuzione), non tutte in blocco a un giocatore solo
+      const target = cur.roundActive[cur.dealCursor % cur.roundActive.length];
+      await dealBiscaCard(cur.id, info.playerId, target);
+    } else if(cur.phase==='predict'){
       const cards = SEQ[cur.roundIndex%SEQ.length];
       let pred = botPredict(cur.hands[info.playerId], cards, cur.roundActive.length);
       const vietato = numeroVietato(cur, info.playerId, cards);
@@ -2585,6 +2593,7 @@ async function render(force){
     applyScreenTransition('match');
     if(match.game==='roulette') activateRouletteSpinAnimation();
     if(match.game==='battaglianavale') activateBattleshipShotAnimation(match, claim);
+    if(!match.game) activateBiscaDealAnimation(match);
     scheduleBotMove();
     return;
   }
@@ -3029,12 +3038,6 @@ function seededShuffle(arr, seed){
   const rnd = mulberry32(seed);
   for(let i=arr.length-1;i>0;i--){ const j=Math.floor(rnd()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; }
   return arr;
-}
-function dealRound(seed, roundIndex, activeIds, cardsPerPlayer){
-  const deck = seededShuffle(freshDeck(), (seed|0) + roundIndex*7919);
-  const hands = {}; let idx=0;
-  activeIds.forEach(pid=>{ hands[pid]=deck.slice(idx, idx+cardsPerPlayer); idx+=cardsPerPlayer; });
-  return hands;
 }
 function cardIdx(c){ return c.si*10 + c.ri; }               // 0..39, univoco
 function cardFromIdx(i){
@@ -3512,13 +3515,22 @@ function packMatch(m){
   // partite iniziate con una versione precedente non hanno il seme: le mani non
   // sarebbero ricostruibili, quindi restano nel formato esteso.
   if(m.seed===undefined || m.seed===null) return m;
+  const playerIdx = pid => m.players.findIndex(x=>x.id===pid);
   const p = {
     i:m.id, s:m.seed, t:m.createdAt, L:m.startingLives, r:m.roundIndex,
     ld:m.leaderId, dx:(m.dealerIdx ?? 0), ph:m.phase, rev:m.rev||0,
     pl:m.players.map(x=>[x.name, x.lives, x.eliminated?1:0, x.eliminatedAtRound, x.isBot?1:0]),
     pv:m.previsioni||{}, tw:m.tricksWon||{},
     rp:(m.roundPlays||[]).map(x=>[x.playerId, cardIdx(x.card)]),
-    lg:(m.log||[]).map(r=>[r.round, r.cards, r.entries.map(e=>[e.name, e.previsione, e.prese, e.viteAfter, e.eliminated?1:0])])
+    lg:(m.log||[]).map(r=>[r.round, r.cards, r.entries.map(e=>[e.name, e.previsione, e.prese, e.viteAfter, e.eliminated?1:0])]),
+    // Distribuzione manuale: a chi e' andata ciascuna carta del mazzo (in
+    // ordine) non si puo' ricavare dal seme come il resto — dipende dalle
+    // scelte del mazziere, non e' deterministico — quindi va trasmesso per
+    // esteso, ma solo come indice giocatore (interi piccoli): dc/do bastano
+    // per ricostruire le mani esatte a qualunque punto della distribuzione.
+    dc:m.dealCursor ?? 0,
+    do:(m.dealOrder||[]).map(playerIdx),
+    ldt:m.lastDealt ? [playerIdx(m.lastDealt.toId), m.lastDealt.seq] : null
   };
   if(m.trick) p.tk = {
     pl:m.trick.plays.map(x=>[x.playerId, cardIdx(x.card), x.forcedValue||0]),
@@ -3542,9 +3554,29 @@ function unpackMatch(p){
   };
   m.roundActive = m.players.filter(x=>!x.eliminated).map(x=>x.id);
   m.turnOrder = rotateFromId(m.roundActive, m.leaderId);
-  // ricostruzione delle mani: distribuzione dal seme, meno le carte gia' calate
+  // ricostruzione delle mani: mazzo deterministico dal seme (biscaDealDeckFor),
+  // ma l'assegnazione carta-per-carta segue l'ordine REALE in cui il mazziere
+  // le ha date (m.dealOrder), non un taglio a blocchi fissi — con la
+  // distribuzione manuale due mani diverse possono ricevere le carte in un
+  // ordine qualunque, non necessariamente "tutte le prime N al giocatore 1".
+  // p.do assente = codice/partita di prima di questa funzionalita': in quel
+  // caso la distribuzione era sempre completa e a blocchi, si ricostruisce
+  // allo stesso modo di prima per compatibilita'.
   const cards = SEQ[m.roundIndex % SEQ.length];
-  m.hands = dealRound(m.seed, m.roundIndex, m.roundActive, cards);
+  const dealTotal = m.roundActive.length * cards;
+  m.dealTotal = dealTotal;
+  m.dealCursor = p.dc ?? dealTotal;
+  const deck = biscaDealDeckFor(m);
+  const dealOrderIds = p.do
+    ? p.do.map(idx => m.players[idx] && m.players[idx].id)
+    : m.roundActive.flatMap(pid => Array(cards).fill(pid));
+  m.dealOrder = dealOrderIds.slice(0, m.dealCursor);
+  m.hands = {}; m.roundActive.forEach(pid=>{ m.hands[pid]=[]; });
+  for(let i=0;i<m.dealCursor;i++){
+    const pid = dealOrderIds[i];
+    if(m.hands[pid]) m.hands[pid].push(deck[i]);
+  }
+  m.lastDealt = p.ldt ? { toId: m.players[p.ldt[0]] && m.players[p.ldt[0]].id, seq: p.ldt[1] } : null;
   for(const rp of m.roundPlays){
     const h = m.hands[rp.playerId];
     if(!h) continue;
@@ -3570,10 +3602,27 @@ function starterIdForDealer(match){
   }
   return match.roundActive[0];
 }
+// Il mazzo per la mano corrente e' sempre lo stesso, seme+numero di mano
+// (deterministico): ogni dispositivo lo puo' ricalcolare da solo in
+// qualunque momento, senza doverlo tenere nello stato sincronizzato — e'
+// esattamente la stessa formula che prima usava dealRound() per dare tutte
+// le carte in un colpo solo.
+function biscaDealDeckFor(match){
+  return seededShuffle(freshDeck(), (match.seed|0) + match.roundIndex*7919);
+}
 function startRound(match){
   const active = activeIds(match);
   const cards = SEQ[match.roundIndex % SEQ.length];
-  match.hands = dealRound(match.seed, match.roundIndex, active, cards);
+  // Le mani partono vuote: le carte vere esistono gia' (il mazzo e'
+  // deterministico, vedi biscaDealDeckFor), ma vengono spostate in
+  // match.hands una alla volta dal mazziere durante la fase 'dealing' —
+  // e' proprio questa la distribuzione manuale, non una semplice animazione
+  // sopra un risultato gia' deciso.
+  match.hands = {}; active.forEach(pid=>{ match.hands[pid]=[]; });
+  match.dealCursor = 0;
+  match.dealTotal = active.length * cards;
+  match.dealOrder = []; // a chi e' andata ciascuna carta del mazzo, in ordine — vedi packMatch
+  match.lastDealt = null;
   match.roundActive = active;
   match.roundPlays = [];   // carte gia calate in questa mano, per ricostruire le mani residue
   match.previsioni = {};
@@ -3586,8 +3635,45 @@ function startRound(match){
   }
   match.leaderId = starterIdForDealer(match);
   match.turnOrder = rotateFromId(active, match.leaderId);
-  match.phase = 'predict';
+  match.phase = 'dealing';
   match.trick = null;
+}
+// Il mazziere (umano: un tocco alla volta; bot: vedi scheduleBiscaBotMove)
+// sposta la prossima carta del mazzo deterministico nella mano scelta.
+// Niente distribuzione "automatica dietro le quinte": finche' la fase resta
+// 'dealing', match.hands riflette esattamente le carte gia' davvero date.
+async function dealBiscaCard(matchId, dealerId, toPlayerId){
+  const match = await getActiveMatch();
+  if(!match || match.id!==matchId || match.phase!=='dealing') return;
+  const dealer = match.players[match.dealerIdx];
+  if(!dealer || dealer.id!==dealerId) return; // solo il mazziere di turno puo' distribuire
+  if(!match.roundActive.includes(toPlayerId)) return;
+  if(match.dealCursor>=match.dealTotal) return;
+  const deck = biscaDealDeckFor(match);
+  const card = deck[match.dealCursor];
+  match.hands[toPlayerId].push(card);
+  match.dealOrder = match.dealOrder || [];
+  match.dealOrder.push(toPlayerId);
+  match.dealCursor++;
+  // Niente identita' della carta qui: durante il volo si vede sempre e solo
+  // il dorso (la carta e' ancora coperta), quindi all'animazione basta sapere
+  // CHI l'ha ricevuta, non quale carta sia.
+  match.lastDealt = { toId: toPlayerId, seq: match.dealCursor };
+  await setActiveMatch(match);
+  await render();
+}
+// Quando l'ultima carta e' stata data, la fase passa a 'predict' con un
+// piccolo ritardo (lascia il tempo all'animazione dell'ultima carta di
+// arrivare a schermo prima di cambiare vista) — stesso schema gia' usato per
+// continueAfterTrick/continueAfterBriscolaTrick: ogni dispositivo puo' avere
+// il proprio timer, il controllo sulla fase evita che chi arriva dopo
+// rifaccia il lavoro una seconda volta.
+async function continueAfterBiscaDealing(matchId){
+  const match = await getActiveMatch();
+  if(!match || match.id!==matchId || match.phase!=='dealing' || match.dealCursor<match.dealTotal) return;
+  match.phase = 'predict';
+  await setActiveMatch(match);
+  await render();
 }
 
 function numeroVietato(match, playerId, maxCards){
@@ -10824,23 +10910,74 @@ function renderRoundEndBanner(match, myId){
     </div>`;
 }
 
+// Distribuzione manuale: il mazziere di turno tocca un giocatore per dargli
+// la prossima carta del mazzo (coperta — l'animazione mostra sempre e solo
+// il dorso, mai la faccia, come una vera distribuzione). Gli altri vedono la
+// stessa scena in diretta: il conteggio carte di ciascuno cresce e la carta
+// vola visibilmente verso il posto giusto (vedi activateBiscaDealAnimation).
+function renderBiscaDealing(match, myId, revealAll){
+  const cards = SEQ[match.roundIndex % SEQ.length];
+  const dealer = match.players[match.dealerIdx];
+  const isDealer = !revealAll && myId===dealer.id;
+  const myLabel = revealAll ? 'tutti visibili' : esc(nameOf(match,myId));
+  const seats = match.roundActive.map(pid=>{
+    const p = match.players.find(x=>x.id===pid);
+    const n = (match.hands[pid]||[]).length;
+    const done = n>=cards;
+    const clickable = isDealer && !done;
+    return `<div id="deal-seat-${pid}" ${clickable?`onclick="dealBiscaCard('${match.id}','${dealer.id}','${pid}')"`:''}
+        style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 14px;border-radius:12px;min-width:64px;
+        ${clickable?'cursor:pointer;background:rgba(212,175,106,.14);border:1px solid rgba(212,175,106,.5);':'border:1px solid transparent;'}">
+      ${hudAvatar(p.name)}
+      <span style="font-size:12px;text-align:center;">${esc(p.name)}${p.id===dealer.id?' 🂠':''}</span>
+      <span style="font-size:12px;font-weight:700;color:${done?'#8FBF9F':'#D4AF6A'};">${n}/${cards}</span>
+    </div>`;
+  }).join('');
+  const hint = isDealer
+    ? `<p class="hint" style="text-align:center;">Tocca un giocatore per dargli una carta.</p>`
+    : `<p class="hint" style="text-align:center;">${esc(dealer.name)} sta distribuendo le carte…</p>`;
+  return `<div class="card">
+    <div class="toolbar">
+      <span>${hudAvatar(myLabel)}Sei: ${myLabel}</span>
+      <button class="btn-danger btn-small" onclick="abandonMatch()">Abbandona</button>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin:16px 0;">${seats}</div>
+    ${hint}
+  </div>`;
+}
+// Anima in diretta, su OGNI dispositivo, la carta appena data da
+// dealBiscaCard/dealOneCard-del-bot: parte dal centro schermo (come la
+// vecchia distribuzione a raggiera) e vola verso il posto del destinatario.
+// Quando l'ultima carta e' stata data, programma il passaggio alla fase
+// 'predict' con un piccolo ritardo (continueAfterBiscaDealing e' comunque
+// protetta dal controllo di fase, quindi anche se piu' dispositivi
+// programmano lo stesso passaggio non succede nulla di doppio).
+let biscaLastAnimatedDealKey = null;
+function activateBiscaDealAnimation(match){
+  if(match.phase!=='dealing' || !match.lastDealt) return;
+  const key = match.id+'|'+match.roundIndex+'|'+match.lastDealt.seq;
+  if(biscaLastAnimatedDealKey===key) return;
+  biscaLastAnimatedDealKey = key;
+  const toEl = document.getElementById('deal-seat-'+match.lastDealt.toId);
+  if(toEl){
+    const rect = toEl.getBoundingClientRect();
+    const vw = window.innerWidth, vh = window.innerHeight;
+    flyCardImage(CARD_IMG['back'], {left:vw/2, top:vh/2, width:0, height:0}, rect,
+      { width:30, height:42, duration:0.3, rot0: Math.random()*30-15 });
+  }
+  if(match.dealCursor>=match.dealTotal){
+    setTimeout(()=> continueAfterBiscaDealing(match.id), 550);
+  }
+}
+
 function renderMatch(match, claim){
   const cards = SEQ[match.roundIndex % SEQ.length];
   const revealAll = claim.type==='all';
   const myId = claim.type==='seat' ? claim.playerId : null;
   const myLabel = revealAll ? 'tutti visibili' : esc(nameOf(match,myId));
 
-  if(myId && match.phase!=='roundEnd' && match.phase!=='ended'){
-    const dealKey = 'bisca|'+match.id+'|'+match.roundIndex;
-    if(!(dealKey in dealTableAnimState)){
-      dealTableAnimState[dealKey] = 'started';
-      const ids = match.players.map(p=>p.id);
-      const names = ids.map(id=>nameOf(match,id));
-      cardFxDealTable(names, ids.indexOf(myId), cards, {
-        onDone: ()=>{ dealTableAnimState[dealKey]='done'; lastRenderKey=null; render(true); }
-      });
-    }
-    if(dealTableAnimState[dealKey]==='started') return dealWaitingScreenHTML('Bisca · '+myLabel);
+  if(match.phase==='dealing'){
+    return renderBiscaDealing(match, myId, revealAll)+renderLog(match);
   }
 
   if(match.phase==='roundEnd'){
