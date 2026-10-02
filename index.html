@@ -1175,22 +1175,150 @@ function cardFxDealTable(names, myIndex, cardsPerPlayer, opts){
   const totalDuration = Math.max(350, startDelay + shown*gap + 200);
   setTimeout(()=>{ if(typeof opts.onDone==='function') opts.onDone(); }, totalDuration);
 }
-// Lancio di una singola carta quando un giocatore gioca/scarta: il suono
-// parte sempre, ma la carta vola visibilmente solo quando so DAVVERO da
-// dove farla partire — cioe' quando sei stato tu a toccarla un attimo fa
-// (vedi il listener su .hand-card piu' sopra). Per le mosse dei bot non
-// esiste una vera carta a schermo da cui partire (le loro mani non sono
-// disegnate), quindi resta solo il suono invece di una posizione indovinata.
-async function cardFxThrowFromSeat(match, playerIds, throwerId, imgSrc){
-  if(!Array.isArray(playerIds) || playerIds.length<1 || !throwerId) return;
-  sndCardPlay();
-  if(!lastHandCardRect || performance.now()-lastHandCardAt > 400) return;
-  const fromRect = lastHandCardRect;
-  lastHandCardRect = null; // consumata: non va riusata per un'altra animazione
-  const toEl = document.querySelector('.table-wrap') || document.querySelector('#app .card');
-  if(!toEl) return;
-  const toRect = toEl.getBoundingClientRect();
-  flyCardImage(imgSrc, fromRect, toRect, { width:46, height:64, duration:0.34 });
+// =========================================================================
+// Carte in movimento: pesca, tiro e passaggio di mano, per TUTTI i giochi
+// di carte e per TUTTI i giocatori (tu, i bot, gli avversari online).
+//
+// Invece di agganciare un'animazione a ogni singola azione di ogni gioco
+// (decine di punti diversi, e comunque cieca alle mosse che arrivano da un
+// altro dispositivo), dopo ogni render confronto DOVE stava ogni carta
+// prima e dove sta adesso:
+//  - comparsa in una mano senza venire da un'altra  -> pescata: vola COPERTA
+//    dal mazzo (o dagli scarti, se era quella in cima) al giocatore;
+//  - sparita da una mano senza finire in un'altra    -> giocata: vola
+//    SCOPERTA dal giocatore al punto esatto del tavolo dove e' atterrata;
+//  - passata da una mano all'altra (Vecia)           -> vola coperta tra i
+//    due posti.
+// Ogni gioco dichiara solo quali sono le "mani" da osservare, il dorso del
+// suo mazzo e come si disegna la faccia (cardMotionModel). I punti di
+// partenza/arrivo li forniscono i marcatori nel DOM: data-seat (posto),
+// data-deck (mazzo), data-pile (scarti/centro), data-card (una carta
+// scoperta visibile sul tavolo, che resta nascosta finche' quella in volo
+// non ci atterra sopra).
+// =========================================================================
+const UNO_BACK_IMG = 'data:image/svg+xml;utf8,'+encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 84" width="60" height="84">'+
+  '<rect x="1" y="1" width="58" height="82" rx="8" fill="#161616" stroke="#3C5A4C" stroke-width="1.5"/>'+
+  '<ellipse cx="30" cy="42" rx="21" ry="30" fill="#D5262C" transform="rotate(-18 30 42)"/>'+
+  '<text x="30" y="48" text-anchor="middle" font-family="Georgia,serif" font-size="15" font-weight="800" fill="#F4B400" transform="rotate(-18 30 42)">UNO</text></svg>');
+
+function cardMotionModel(match){
+  if(!match) return null;
+  const italian = { back: CARD_IMG['back'], face: c=>cardSrc(c.suit, c.rank) };
+  const poker = { back: POKER_BACK_IMG, face: c=>scala40ImageHref(c) };
+  const owners = {};
+  const fromHands = h => Object.keys(h||{}).forEach(pid=>{ if(Array.isArray(h[pid])) owners[pid] = h[pid]; });
+  switch(match.game || 'bisca'){
+    case 'bisca':      fromHands(match.hands); return { epoch: match.roundIndex, owners, ...italian };
+    case 'scopa':      fromHands(match.hands); return { epoch: match.dealNumber||1, owners, ...italian };
+    case 'briscola':   fromHands(match.hands); return { epoch: match.dealNumber||1, owners, ...italian };
+    case 'vecia':      fromHands(match.hands); return { epoch: 1, owners, ...italian };
+    // chi si prende il mazzetto centrale lo riceve dal centro, non dal mazzo
+    case 'cavacamisa': fromHands(match.hands); return { epoch: match.dealNumber||1, owners, ...italian, arriveFromPile: true };
+    case 'uno':        fromHands(match.hands); return { epoch: match.dealNumber||1, owners, back: UNO_BACK_IMG, face: c=>unoCardImageHref(c) };
+    case 'scala40': {
+      fromHands(match.hands);
+      const pile = match.discardPile||[];
+      return { epoch: match.dealNumber||1, owners, ...poker, pileTopId: pile.length ? pile[pile.length-1].id : null };
+    }
+    // Nel poker osservo solo le carte comuni: le carte coperte di chi passa
+    // o di fine mano non devono MAI volare scoperte sul tavolo.
+    case 'poker':      owners.__table = match.community||[]; return { epoch: match.handNumber, owners, ...poker };
+    case 'blackjack':
+      (match.turnOrder||[]).forEach(pid=>{ owners[pid] = bjPlayerHands(match,pid).flatMap(h=>h.cards||[]); });
+      owners.__dealer = match.dealerHand||[];
+      return { epoch: match.roundNumber, owners, ...poker };
+    default: return null;
+  }
+}
+let cardMotionPrev = null;
+let cardMotionSoundAt = 0;
+function cardMotionTableRect(){
+  const t = document.querySelector('#app .table-wrap, #app .bj-table-svg-wrap');
+  return t ? t.getBoundingClientRect() : null;
+}
+// Il centro del posto e' quello dell'avatar (il primo cerchio del gruppo,
+// sempre centrato sul posto), non quello dell'intero gruppo che include
+// anche nome e statistiche spostati verso il bordo.
+function cardMotionSeatRect(owner){
+  const g = document.querySelector('#app [data-seat="'+owner+'"]');
+  if(!g) return null;
+  const anchor = g.querySelector('circle') || g;
+  return anchor.getBoundingClientRect();
+}
+function cardMotionAt(sel){
+  const el = document.querySelector('#app '+sel);
+  return el ? el.getBoundingClientRect() : null;
+}
+function activateCardMotion(match, claim){
+  const model = cardMotionModel(match);
+  if(!model){ cardMotionPrev = null; return; }
+  const loc = {}, cards = {};
+  Object.keys(model.owners).forEach(o=> model.owners[o].forEach(c=>{ if(c && c.id!=null){ loc[c.id]=o; cards[c.id]=c; } }));
+  const prev = cardMotionPrev;
+  cardMotionPrev = { matchId: match.id, epoch: model.epoch, loc, cards, pileTopId: model.pileTopId||null };
+  // Nuova mano (o prima volta che vedo questa partita): solo fotografia.
+  // La distribuzione iniziale ha gia' la sua animazione dedicata, e farla
+  // passare anche da qui la mostrerebbe due volte.
+  if(!prev || prev.matchId!==match.id || prev.epoch!==model.epoch) return;
+  if(!cardMotionTableRect()) return;
+  const myId = claim && claim.type==='seat' ? claim.playerId : null;
+  const moves = [];
+  Object.keys(loc).forEach(id=>{ if(prev.loc[id]!==loc[id]) moves.push({ id, card: cards[id], from: prev.loc[id]||null, to: loc[id] }); });
+  Object.keys(prev.loc).forEach(id=>{ if(loc[id]===undefined) moves.push({ id, card: prev.cards[id], from: prev.loc[id], to: null }); });
+  // Destinazione decisa ADESSO, sullo schermo appena disegnato, non quando il
+  // volo parte (fino a ~1s dopo, per lo scaglionamento): nel frattempo puo'
+  // gia' essere arrivata la mossa successiva — es. un bot che pesca e gioca
+  // subito la stessa carta — e la carta pescata finirebbe per volare scoperta
+  // verso gli scarti invece che coperta verso chi l'ha pescata.
+  moves.forEach(mv=>{ mv.toCard = !!document.querySelector('#app [data-card="'+mv.id+'"]'); });
+  // Oltre una dozzina (es. chi si prende un mazzetto enorme a Cava Camisa)
+  // le carte in volo si accavallano senza aggiungere nulla.
+  moves.slice(0, 12).forEach((mv,i)=> setTimeout(()=> cardMotionFly(mv, model, prev.pileTopId, myId), i*90));
+}
+function cardMotionFly(mv, model, prevPileTopId, myId){
+  const table = cardMotionTableRect();
+  if(!table) return;
+  const fromDiscard = mv.from===null && (model.arriveFromPile || (prevPileTopId && prevPileTopId===mv.id));
+  let fromRect;
+  if(mv.from===null){
+    fromRect = cardMotionAt(fromDiscard ? '[data-pile]' : '[data-deck]') || table;
+  } else if(mv.from===myId && lastHandCardRect && performance.now()-lastHandCardAt < 2500){
+    // la carta che hai appena toccato parte esattamente da dove stava nella tua mano
+    fromRect = lastHandCardRect;
+    lastHandCardRect = null;
+  } else {
+    fromRect = cardMotionSeatRect(mv.from) || table;
+  }
+  // Atterraggio: se la carta e' visibile scoperta da qualche parte (sul
+  // tavolo, negli scarti, nella TUA mano) vola scoperta fin li'; altrimenti
+  // vola coperta verso il posto di chi la riceve, o scoperta verso il centro
+  // se e' uscita dal gioco (presa, coppia scartata, ...).
+  const destEl = mv.toCard ? document.querySelector('#app [data-card="'+mv.id+'"]') : null;
+  let toRect, img, w = 32, h = 46;
+  if(destEl){
+    toRect = destEl.getBoundingClientRect();
+    img = model.face(mv.card);
+    w = Math.max(24, Math.min(70, toRect.width));
+    h = Math.max(34, Math.min(100, toRect.height));
+  } else if(mv.to){
+    toRect = cardMotionSeatRect(mv.to) || table;
+    img = fromDiscard ? model.face(mv.card) : model.back;
+  } else {
+    toRect = cardMotionAt('[data-pile]') || table;
+    img = model.face(mv.card);
+  }
+  const dx = (fromRect.left+fromRect.width/2) - (toRect.left+toRect.width/2);
+  const dy = (fromRect.top+fromRect.height/2) - (toRect.top+toRect.height/2);
+  if(Math.hypot(dx,dy) < 10) return;
+  const dur = mv.to && !destEl ? 0.36 : 0.34;
+  if(destEl){
+    destEl.style.visibility = 'hidden';
+    setTimeout(()=>{ destEl.style.visibility = ''; }, dur*1000+20);
+  }
+  const now = performance.now();
+  if(now - cardMotionSoundAt > 70){ cardMotionSoundAt = now; sndCardPlay(); }
+  flyCardImage(img, fromRect, toRect, { width:w, height:h, duration:dur, rot0: Math.random()*24-12 });
 }
 function hudAvatar(name){
   const initial = (name||'?').trim().charAt(0).toUpperCase() || '?';
@@ -2610,6 +2738,7 @@ async function render(force){
     if(match.game==='roulette') activateRouletteSpinAnimation();
     if(match.game==='battaglianavale') activateBattleshipShotAnimation(match, claim);
     if(!match.game) activateBiscaDealAnimation(match);
+    activateCardMotion(match, claim);
     scheduleBotMove();
     return;
   }
@@ -3328,7 +3457,6 @@ async function playScopaCard(matchId, playerId, cardId, chosenComboIdx){
 
   const wasLastPlay = isFinalPlayOfGame(match, playerId);
   const card = hand.splice(ci,1)[0];
-  cardFxThrowFromSeat(match, match.turnOrder, playerId, cardSrc(card.suit, card.rank));
   const isAce = !!(match.rules && match.rules.assoPigliaTutto && card.rank==='A' && match.table.length>0);
   const options = getCaptureOptions(match, card);
 
@@ -3793,7 +3921,6 @@ async function playCard(matchId, playerId, cardId, forcedValue){
   const ci = hand.findIndex(c=>c.id===cardId);
   if(ci<0) return;
   const card = hand.splice(ci,1)[0];
-  cardFxThrowFromSeat(match, match.turnOrder, playerId, cardSrc(card.suit, card.rank));
   const play = {playerId, card};
   if(isAssoDenari(card) && (forcedValue==='alto' || forcedValue==='basso')) play.forcedValue = forcedValue;
   trick.plays.push(play);
@@ -4239,7 +4366,7 @@ function renderTableSVG(match, cards, revealAll, myId){
           ? `<text x="${px}" y="${py+cardH/2+9*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9*fs}" font-weight="700" fill="#D4AF6A">${playEntry.forcedValue==='alto'?'▲ alto':'▼ basso'}</text>`
           : '';
         playedCardSvg = `
-          <g transform="translate(${px},${py}) rotate(${tilt})" style="filter:drop-shadow(0 2px 4px rgba(0,0,0,.4));">
+          <g data-card="${playEntry.card.id}" transform="translate(${px},${py}) rotate(${tilt})" style="filter:drop-shadow(0 2px 4px rgba(0,0,0,.4));">
             <g class="${cardAnimClass}">
               <rect x="${-cardW/2}" y="${-cardH/2}" width="${cardW}" height="${cardH}" rx="${3*cardSc}" fill="#F1ECE1" stroke="#8C7647" stroke-width="0.8"/>
               <image href="${src}" x="${-cardW/2}" y="${-cardH/2}" width="${cardW}" height="${cardH}" preserveAspectRatio="xMidYMid slice" clip-path="url(#tbl-cardclip)"/>
@@ -4270,7 +4397,7 @@ function renderTableSVG(match, cards, revealAll, myId){
     // "none": quello resta cliccabile) copre TUTTA l'area evidenziata, non
     // solo i pochi pixel di stroke o il piccolo cerchio dell'avatar dentro.
     seats += `
-      <g id="table-seat-${pid}" ${dealableHere?`onclick="dealBiscaCard('${match.id}','${myId}','${pid}')" style="cursor:pointer;"`:''}>
+      <g id="table-seat-${pid}" data-seat="${pid}" ${dealableHere?`onclick="dealBiscaCard('${match.id}','${myId}','${pid}')" style="cursor:pointer;"`:''}>
         ${dealableHere?`<circle cx="${x}" cy="${y}" r="${avatarR+9}" fill="transparent"/>`:''}
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         ${dealableHere?`<circle cx="${x}" cy="${y}" r="${avatarR+9}" fill="none" stroke="#D4AF6A" stroke-width="1.4" stroke-dasharray="3,3"><animateTransform attributeName="transform" type="rotate" from="0 ${x} ${y}" to="360 ${x} ${y}" dur="6s" repeatCount="indefinite"/></circle>`:''}
@@ -4413,7 +4540,7 @@ function renderScopaTableSVG(match, myId){
     }
 
     seats += `
-      <g>
+      <g data-seat="${pid}">
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':(teamTint||'#3C5A4C'))}" stroke-width="${isTurn?2.4:(teamTint?2.2:1.8)}"/>
         <rect x="${x-9*fs}" y="${y-13*fs}" width="${18*fs}" height="${26*fs}" rx="3" fill="url(#table-cardback2)" stroke="#8C7647" stroke-width="1"/>
@@ -4444,7 +4571,7 @@ function renderScopaTableSVG(match, myId){
     const glow = glowIds && glowIds.has(c.id);
     const src = cardSrc(c.suit, c.rank);
     tableCardsSvg += `
-      <g transform="translate(${px},${py})" style="filter:drop-shadow(0 1px 3px rgba(0,0,0,.4));">
+      <g data-card="${c.id}" transform="translate(${px},${py})" style="filter:drop-shadow(0 1px 3px rgba(0,0,0,.4));">
         <g class="${glow?'played-in played-win':''}">
           <rect x="${-tCardW/2}" y="${-tCardH/2}" width="${tCardW}" height="${tCardH}" rx="2.4" fill="#F1ECE1" stroke="#8C7647" stroke-width="0.7"/>
           <image href="${src}" x="${-tCardW/2}" y="${-tCardH/2}" width="${tCardW}" height="${tCardH}" preserveAspectRatio="xMidYMid slice" clip-path="url(#scopa-cardclip)"/>
@@ -4723,7 +4850,6 @@ async function playBriscolaCard(matchId, playerId, cardId){
   const ci = hand.findIndex(c=>c.id===cardId);
   if(ci<0) return;
   const card = hand.splice(ci,1)[0];
-  cardFxThrowFromSeat(match, match.turnOrder, playerId, cardSrc(card.suit, card.rank));
   trick.plays.push({playerId, card});
 
   if(trick.plays.length === trick.turnOrder.length){
@@ -5020,7 +5146,7 @@ function renderBriscolaTableSVG(match, myId){
       const tilt = (Math.atan2(ny,nx)*180/Math.PI + 90) * 0.12;
       const src = cardSrc(playEntry.card.suit, playEntry.card.rank);
       playedCardSvg = `
-        <g transform="translate(${px},${py}) rotate(${tilt})" style="filter:drop-shadow(0 2px 4px rgba(0,0,0,.4));">
+        <g data-card="${playEntry.card.id}" transform="translate(${px},${py}) rotate(${tilt})" style="filter:drop-shadow(0 2px 4px rgba(0,0,0,.4));">
           <g class="${cardAnimClass}">
             <rect x="${-cardW/2}" y="${-cardH/2}" width="${cardW}" height="${cardH}" rx="${3*cardSc}" fill="#F1ECE1" stroke="#8C7647" stroke-width="0.8"/>
             <image href="${src}" x="${-cardW/2}" y="${-cardH/2}" width="${cardW}" height="${cardH}" preserveAspectRatio="xMidYMid slice" clip-path="url(#brisc-cardclip)"/>
@@ -5035,7 +5161,7 @@ function renderBriscolaTableSVG(match, myId){
     }
 
     seats += `
-      <g>
+      <g data-seat="${pid}">
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':(teamTint||'#3C5A4C'))}" stroke-width="${isTurn?2.4:(teamTint?2.2:1.8)}"/>
         <rect x="${x-9*fs}" y="${y-13*fs}" width="${18*fs}" height="${26*fs}" rx="3" fill="url(#brisc-cardback)" stroke="#8C7647" stroke-width="1"/>
@@ -5053,7 +5179,7 @@ function renderBriscolaTableSVG(match, myId){
   const briscolaVisible = deckLeft > 0; // una volta esaurito il mazzo, l'ultimo l'ha gia' presa in mano
   const bcW = 26*fs, bcH = 54*fs;
   const centerSvg = briscolaVisible ? `
-    <g transform="translate(${cx},${cy})">
+    <g data-deck transform="translate(${cx},${cy})">
       <rect x="${-bcW/2}" y="${-bcH/2}" width="${bcW}" height="${bcH}" rx="3" fill="#F1ECE1" stroke="#8C7647" stroke-width="0.8"/>
       <image href="${cardSrc(match.briscolaCard.suit, match.briscolaCard.rank)}" x="${-bcW/2}" y="${-bcH/2}" width="${bcW}" height="${bcH}" preserveAspectRatio="xMidYMid slice" clip-path="url(#brisc-briscolaclip)"/>
     </g>` : '';
@@ -5308,7 +5434,6 @@ async function veciaDraw(matchId, drawerId, pickIndex){
   const pickIdx = (Number.isInteger(pickIndex) && pickIndex>=0 && pickIndex<fromHand.length)
     ? pickIndex : Math.floor(Math.random()*fromHand.length);
   const card = fromHand.splice(pickIdx,1)[0];
-  cardFxThrowFromSeat(match, match.turnOrder, fromId, CARD_IMG['back']);
   const hand = match.hands[drawerId];
   const matched = hand.some(c=>c.rank===card.rank); // c'e' gia' una carta dello stesso rango in mano?
   hand.push(card); // la carta pescata resta in mano finche' non si clicca "Scarta la coppia"
@@ -5443,7 +5568,7 @@ function renderVeciaTableSVG(match, myId){
         <text x="${x+9*fs}" y="${y+13.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>`;
 
     seats += `
-      <g>
+      <g data-seat="${pid}">
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':'#3C5A4C')}" stroke-width="${isTurn?2.4:1.8}" opacity="${isSafe?0.55:1}"/>
         ${handSvg}
@@ -5657,7 +5782,6 @@ async function cavaCamisaFlip(matchId, flipperId){
   const hand = match.hands[flipperId];
   if(!hand.length) return;
   const card = hand.shift();
-  cardFxThrowFromSeat(match, match.turnOrder, flipperId, cardSrc(card.suit, card.rank));
   match.center.push(card);
   const specialValue = CAVA_SPECIALI[card.rank];
   let pileAwardedTo = null;
@@ -5840,7 +5964,7 @@ function renderCavaCamisaTableSVG(match, myId){
         <text x="${x+9*fs}" y="${y+13.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>`;
 
     seats += `
-      <g>
+      <g data-seat="${pid}">
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':'#3C5A4C')}" stroke-width="${isTurn?2.4:1.8}" opacity="${isSafe?0.5:1}"/>
         ${handSvg}
@@ -5853,7 +5977,7 @@ function renderCavaCamisaTableSVG(match, myId){
   const top = match.center[match.center.length-1];
   const cW = 30*fs, cH = 62*fs;
   const centerCardSvg = top ? `
-    <g transform="translate(${cx},${cy-8*fs})" style="filter:drop-shadow(0 2px 4px rgba(0,0,0,.4));">
+    <g data-pile data-card="${top.id}" transform="translate(${cx},${cy-8*fs})" style="filter:drop-shadow(0 2px 4px rgba(0,0,0,.4));">
       <rect x="${-cW/2}" y="${-cH/2}" width="${cW}" height="${cH}" rx="3" fill="#F1ECE1" stroke="#8C7647" stroke-width="0.8"/>
       <image href="${cardSrc(top.suit, top.rank)}" x="${-cW/2}" y="${-cH/2}" width="${cW}" height="${cH}" preserveAspectRatio="xMidYMid slice" clip-path="url(#cava-cardclip)"/>
     </g>
@@ -6698,7 +6822,6 @@ async function scala40Discard(matchId, playerId, cardId){
   if(idx<0) return;
   const wasOpenBefore = match.opened[playerId];
   const card = hand.splice(idx,1)[0];
-  cardFxThrowFromSeat(match, match.turnOrder, playerId, scala40ImageHref(card));
   match.discardPile.push(card);
   match.lastAction = {type:'discard', playerId, card};
   if(hand.length===0){
@@ -10188,7 +10311,6 @@ async function unoPlayCard(matchId, playerId, cardId){
   if(!unoCardPlayable(match, card)) return;
 
   hand.splice(idx,1);
-  cardFxThrowFromSeat(match, match.turnOrder, playerId, unoCardImageHref(card));
   match.discard.push(card);
   match.pendingDrawn = null;
 
@@ -10219,7 +10341,6 @@ async function unoAddToDump(matchId, playerId, cardId){
   const idx = hand.findIndex(c=>c.id===cardId);
   if(idx<0 || unoDumpKey(hand[idx])!==match.pendingDump.dumpKey) return;
   const card = hand.splice(idx,1)[0];
-  cardFxThrowFromSeat(match, match.turnOrder, playerId, unoCardImageHref(card));
   match.discard.push(card);
   match.pendingDump.played.push(card);
   match.lastAction = { type:'play', playerId, card, dumping:true };
@@ -10718,7 +10839,7 @@ function unoTableSVG(match, myId){
     const ly = nameY;
 
     seats += `
-      <g>
+      <g data-seat="${pid}">
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':'#3C5A4C')}" stroke-width="${isTurn?2.4:1.8}"/>
         <rect x="${x-9*fs}" y="${y-13*fs}" width="${18*fs}" height="${26*fs}" rx="3" fill="#161616" stroke="${isUnoRisk?'#D5262C':'#8C7647'}" stroke-width="${isUnoRisk?2:1}"/>
@@ -10735,9 +10856,9 @@ function unoTableSVG(match, myId){
   const dirArrow = match.direction===1 ? '↻' : '↺';
   const colorDot = UNO_COLOR_HEX[match.currentColor] || '#888';
   const centerSvg = `
-    <g transform="translate(${cx-gap},${cy-6*fs})">${unoCardBackSVGInline(cW,cH)}</g>
+    <g data-deck transform="translate(${cx-gap},${cy-6*fs})">${unoCardBackSVGInline(cW,cH)}</g>
     <text x="${cx-gap}" y="${cy-6*fs+cH/2+14*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${8*fs}" fill="#B9C4BC">${match.drawPile.length} nel mazzo</text>
-    <g transform="translate(${cx+gap},${cy-6*fs})">
+    <g data-pile data-card="${top?top.id:''}" transform="translate(${cx+gap},${cy-6*fs})">
       <rect x="${-cW/2-1}" y="${-cH/2-1}" width="${cW+2}" height="${cH+2}" rx="4" fill="#F1ECE1" stroke="#8C7647" stroke-width="0.8"/>
       ${unoCardSVGInline(top, cW, cH)}
     </g>
@@ -10813,6 +10934,7 @@ function renderUnoMatch(match, claim){
       dealTableAnimState[dealKey] = 'started';
       const names = match.turnOrder.map(id=>nameOf(match,id));
       cardFxDealTable(names, match.turnOrder.indexOf(myId), match.hands[myId] ? match.hands[myId].length : 7, {
+        backImg: UNO_BACK_IMG,
         onDone: ()=>{ dealTableAnimState[dealKey]='done'; lastRenderKey=null; render(true); }
       });
     }
@@ -11026,28 +11148,18 @@ function renderDealingBody(match, myId, revealAll){
     ? `<p class="hint" style="text-align:center;">Tocca un posto al tavolo per dargli una carta.</p>`
     : `<p class="hint" style="text-align:center;">${esc(dealer.name)} sta distribuendo le carte…</p>`) + passHint;
 }
-// Anima in diretta, su OGNI dispositivo, la carta appena data da
-// dealBiscaCard/dealOneCard-del-bot: parte dal centro del tavolo (dove sta
-// gia' il mazzetto disegnato da renderTableSVG) e vola verso il posto del
-// destinatario, esattamente sullo stesso tavolo che si sta gia' guardando.
-// Quando l'ultima carta e' stata data, programma il passaggio alla fase
-// 'predict' con un piccolo ritardo (continueAfterBiscaDealing e' comunque
-// protetta dal controllo di fase, quindi anche se piu' dispositivi
-// programmano lo stesso passaggio non succede nulla di doppio).
+// Il volo della carta appena data lo fa activateCardMotion (lo stesso motore
+// di pesca/tiro di tutti i giochi). Qui resta solo il passaggio alla fase
+// 'predict' a mazzo finito, con un piccolo ritardo per lasciar arrivare
+// l'ultima carta (continueAfterBiscaDealing e' protetta dal controllo di
+// fase, quindi anche se piu' dispositivi lo programmano non succede nulla
+// di doppio).
 let biscaLastAnimatedDealKey = null;
 function activateBiscaDealAnimation(match){
   if(match.phase!=='dealing' || !match.lastDealt) return;
   const key = match.id+'|'+match.roundIndex+'|'+match.lastDealt.seq;
   if(biscaLastAnimatedDealKey===key) return;
   biscaLastAnimatedDealKey = key;
-  const toEl = document.getElementById('table-seat-'+match.lastDealt.toId);
-  const tableEl = document.querySelector('.table-wrap');
-  if(toEl && tableEl){
-    const rect = toEl.getBoundingClientRect();
-    const tRect = tableEl.getBoundingClientRect();
-    const from = { left: tRect.left+tRect.width/2, top: tRect.top+tRect.height/2, width:0, height:0 };
-    flyCardImage(CARD_IMG['back'], from, rect, { width:26, height:36, duration:0.3, rot0: Math.random()*30-15 });
-  }
   if(match.dealCursor>=match.dealTotal){
     setTimeout(()=> continueAfterBiscaDealing(match.id), 550);
   }
@@ -11477,7 +11589,7 @@ function scala40TableSVG(match, myId){
     const ly = nameY;
 
     seats += `
-      <g>
+      <g data-seat="${pid}">
         ${isTurn?`<circle cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':'#3C5A4C')}" stroke-width="${isTurn?2.4:1.8}"/>
         <circle cx="${x}" cy="${y}" r="${9*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
@@ -11514,7 +11626,7 @@ function scala40TableSVG(match, myId){
 
 function scala40MiniCard(card, dim){
   const href = scala40ImageHref(card);
-  return `<span class="hand-card ${dim?'disabled':''}" style="width:34px;height:48px;display:inline-block;" title="${esc(scala40CardLabel(card))}"><img src="${href}" style="width:100%;height:100%;object-fit:contain;" onerror="this.style.opacity=0.15"/></span>`;
+  return `<span class="hand-card ${dim?'disabled':''}" data-card="${card.id}" style="width:34px;height:48px;display:inline-block;" title="${esc(scala40CardLabel(card))}"><img src="${href}" style="width:100%;height:100%;object-fit:contain;" onerror="this.style.opacity=0.15"/></span>`;
 }
 
 function scala40ScoreBar(match){
@@ -11594,13 +11706,13 @@ function renderScala40Match(match, claim){
   const drawArea = `
     <div class="row-btns" style="align-items:flex-start;gap:18px;justify-content:center;margin:10px 0;">
       <div style="text-align:center;">
-        <div onclick="${canDraw?`scala40Draw('${match.id}','${myId}','pile')`:''}" style="cursor:${canDraw?'pointer':'default'};display:inline-block;${canDraw?'box-shadow:0 0 0 2px #D4AF6A;border-radius:6px;':''}">
-          <span class="hand-card" style="width:44px;height:62px;display:inline-block;background:#16261F;border-radius:6px;border:1px solid #3C5A4C;"></span>
+        <div data-deck onclick="${canDraw?`scala40Draw('${match.id}','${myId}','pile')`:''}" style="cursor:${canDraw?'pointer':'default'};display:inline-block;${canDraw?'box-shadow:0 0 0 2px #D4AF6A;border-radius:6px;':''}">
+          ${pokerCardBack(44,62)}
         </div>
         <div class="hint" style="margin-top:4px;">Mazzo (${match.drawPile.length})</div>
       </div>
       <div style="text-align:center;">
-        ${topDiscard ? `<div onclick="${canDraw?`scala40Draw('${match.id}','${myId}','discard')`:''}" style="cursor:${canDraw?'pointer':'default'};display:inline-block;${canDraw?'box-shadow:0 0 0 2px #D4AF6A;border-radius:6px;':''}">${scala40MiniCard(topDiscard)}</div>` : '<div class="hint">vuoto</div>'}
+        ${topDiscard ? `<div data-pile onclick="${canDraw?`scala40Draw('${match.id}','${myId}','discard')`:''}" style="cursor:${canDraw?'pointer':'default'};display:inline-block;${canDraw?'box-shadow:0 0 0 2px #D4AF6A;border-radius:6px;':''}">${scala40MiniCard(topDiscard)}</div>` : '<div class="hint">vuoto</div>'}
         <div class="hint" style="margin-top:4px;">Scarti (${match.discardPile.length})</div>
       </div>
     </div>`;
@@ -11707,7 +11819,7 @@ function pokerResetRaiseIfNewTurn(match){
 function pokerMiniCard(card, w, h){
   w = w||44; h = h||62;
   const href = scala40ImageHref(card);
-  return `<span class="hand-card" style="width:${w}px;height:${h}px;display:inline-block;" title="${esc(card.rank+' di '+card.suit)}"><img src="${href}" style="width:100%;height:100%;object-fit:contain;" onerror="this.style.opacity=0.15"/></span>`;
+  return `<span class="hand-card" data-card="${card.id}" style="width:${w}px;height:${h}px;display:inline-block;" title="${esc(card.rank+' di '+card.suit)}"><img src="${href}" style="width:100%;height:100%;object-fit:contain;" onerror="this.style.opacity=0.15"/></span>`;
 }
 function pokerCardBack(w,h){
   w=w||44; h=h||62;
@@ -11768,7 +11880,7 @@ function pokerTableSVG(match, myId){
     const dim = player.eliminated || isFolded;
 
     seats += `
-      <g style="${dim?'opacity:0.4;':''}">
+      <g data-seat="${pid}" style="${dim?'opacity:0.4;':''}">
         ${isTurn?`<circle cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':'#3C5A4C')}" stroke-width="${isTurn?2.4:1.8}"/>
         <text x="${x}" y="${y+3.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${8.5*fs}" font-weight="700" fill="#D4AF6A">${player.chips}</text>
@@ -11789,7 +11901,7 @@ function pokerTableSVG(match, myId){
   // il poker non ha badge/combinazioni extra al centro come Scala 40, quindi puo'
   // usare piu' spazio verticale senza avvicinarsi agli avatar.
   const cardW = 34*fs, cardH = 47*fs;
-  function communityCardImg(c){ return `<img src="${scala40ImageHref(c)}" style="width:${cardW}px;height:${cardH}px;object-fit:contain;margin:0 2px;" onerror="this.style.opacity=0.15"/>`; }
+  function communityCardImg(c){ return `<img data-card="${c.id}" src="${scala40ImageHref(c)}" style="width:${cardW}px;height:${cardH}px;object-fit:contain;margin:0 2px;" onerror="this.style.opacity=0.15"/>`; }
   const communityCards = match.community||[];
   const rigaSopra = communityCards.slice(0,3).map(communityCardImg).join('');
   const rigaSotto = communityCards.slice(3,5).map(communityCardImg).join('');
@@ -13454,7 +13566,7 @@ function bjTableSVG(match, myId){
     const nameColor = player ? (isMe?'#D4AF6A':'#E9E3D3') : '#6C8078';
 
     seatsHtml += `
-      <g ${clickable?`onclick="bjChangeSeat('${match.id}','${myId}',${slot})" style="cursor:pointer;"`:''}>
+      <g ${occId?`data-seat="${occId}"`:''} ${clickable?`onclick="bjChangeSeat('${match.id}','${myId}',${slot})" style="cursor:pointer;"`:''}>
         ${cardsHtml}
         <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${seatR}" fill="rgba(10,20,16,0.35)" stroke="${ringColor}" stroke-width="${ringWidth}"/>
         ${!player ? `<text x="${x.toFixed(1)}" y="${(y+3).toFixed(1)}" text-anchor="middle" font-size="${(seatR*0.62).toFixed(1)}" fill="#6C8078" font-family="'IBM Plex Mono',monospace">${slot+1}</text>` : ''}
@@ -13467,7 +13579,7 @@ function bjTableSVG(match, myId){
   const dealerCards = match.dealerHand || [];
   const dealerLabel = dealerCards.length ? (dealerHidden ? bjHandTotalLabel([dealerCards[0]])+' + ?' : bjHandTotalLabel(dealerCards)) : '';
   const dealerCardW = compact ? 26 : 30, dealerCardH = compact ? 37 : 42;
-  const dealerCardsHtml = dealerCards.length ? `<foreignObject x="${(cx-dealerCardW*2.2).toFixed(1)}" y="${(cyTop-dealerCardH-6).toFixed(1)}" width="${(dealerCardW*4.4).toFixed(1)}" height="${dealerCardH}"><div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;justify-content:center;gap:2px;">${dealerCards.map((c,i)=> i===1 && dealerHidden ? pokerCardBack(dealerCardW,dealerCardH) : pokerMiniCard(c,dealerCardW,dealerCardH)).join('')}</div></foreignObject>` : '';
+  const dealerCardsHtml = dealerCards.length ? `<foreignObject data-seat="__dealer" x="${(cx-dealerCardW*2.2).toFixed(1)}" y="${(cyTop-dealerCardH-6).toFixed(1)}" width="${(dealerCardW*4.4).toFixed(1)}" height="${dealerCardH}"><div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;justify-content:center;gap:2px;">${dealerCards.map((c,i)=> i===1 && dealerHidden ? pokerCardBack(dealerCardW,dealerCardH) : pokerMiniCard(c,dealerCardW,dealerCardH)).join('')}</div></foreignObject>` : '';
 
   return `<div class="bj-table-svg-wrap" style="display:flex;justify-content:center;margin:4px 0;max-height:min(200px, 26vh);">
     <svg viewBox="0 0 ${VB_W} ${VB_H}" width="100%" style="max-width:440px;max-height:min(200px, 26vh);width:auto;display:block;">
@@ -13485,6 +13597,7 @@ function bjTableSVG(match, myId){
       <text font-size="12" font-weight="700" fill="#D4AF6A" font-family="'Fraunces',serif" opacity="0.85" letter-spacing="1">
         <textPath href="#bj-arc-text-path" startOffset="50%" text-anchor="middle">BLACKJACK PAGA 3 A 2</textPath>
       </text>
+      <g data-deck transform="translate(${(cx+rx-18).toFixed(1)},24)"><image href="${POKER_BACK_IMG}" x="-11" y="-15" width="22" height="30" preserveAspectRatio="xMidYMid meet"/></g>
       ${dealerCardsHtml}
       ${dealerLabel ? `<text x="${cx}" y="${cyTop-dealerCardH-11}" text-anchor="middle" font-size="10" fill="#B9C4BC" font-family="'IBM Plex Mono',monospace">Banco: ${dealerLabel}</text>` : `<text x="${cx}" y="${cyTop-14}" text-anchor="middle" font-size="10" fill="#6C8078" font-family="'IBM Plex Mono',monospace">Banco</text>`}
       ${seatsHtml}
