@@ -226,6 +226,10 @@ body.force-share.in-match #sync-panel{display:block !important;}
 .score-chip{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:6px 12px;font-size:13px;}
 .score-chip .score-num{font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:16px;color:var(--gold);}
 .score-chip.target{color:var(--cream-dim);font-size:12px;}
+/* Scala 40 e Poker: stessa riga punteggi delle altre partite (prima senza stile: nomi e numeri tutti attaccati) */
+.row-pills{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0;}
+.row-pills .pill{display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:3px 10px;font-size:12.5px;line-height:1.35;}
+.row-pills .pill b{font-family:'IBM Plex Mono',monospace;color:var(--gold);}
 .room-count{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--cream-dim);white-space:nowrap;}
 .room-players{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
 .room-players.big{gap:8px;margin-top:14px;}
@@ -239,6 +243,16 @@ body.force-share.in-match #sync-panel{display:block !important;}
 
 /* ---------- Tavolo e animazioni ---------- */
 .table-wrap{display:flex;justify-content:center;margin:0 -18px 16px;}
+/* Distribuzione manuale (mdeal): la partita e' ferma, si tocca solo il tavolo */
+#app.mdeal-on [onclick]:not([data-mdeal]){pointer-events:none;}
+#app.mdeal-on .toolbar [onclick]{pointer-events:auto;}
+#app.mdeal-on button:not([data-mdeal]){opacity:.45;}
+#app.mdeal-on .toolbar button{opacity:1;}
+#app.mdeal-on .turn-ring, #app.mdeal-on .turn-dot, #app.mdeal-on .turn-flow, #app.mdeal-on .turn-bar{display:none;}
+.mdeal-hint{text-align:center;margin:0 auto 12px;padding:10px 12px;max-width:420px;border:1px solid #8C7647;border-radius:12px;background:rgba(212,175,106,.08);}
+.mdeal-hint .mdeal-title{font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;color:#D4AF6A;letter-spacing:.02em;}
+.mdeal-hint .mdeal-sub{font-size:12.5px;color:#B9C4BC;margin:4px 0 8px;}
+.mdeal-hint .mdeal-sub:last-child{margin-bottom:0;}
 /* Il tavolo (SVG quadrata, un lato = l'altro) puntava solo a un max-width
    fisso: su schermi bassi in orizzontale (telefono ruotato) i 420px di
    altezza implicita superavano da soli l'intera finestra, ben prima di
@@ -287,7 +301,7 @@ body.force-share.in-match #sync-panel{display:block !important;}
    tocco altrui, anche sulle carte gia' in mano da un pezzo: e' esattamente
    quello che si vedeva come uno sfarfallio continuo. Il vero ingresso delle
    carte, quando vengono davvero distribuite, lo fa gia' l'animazione
-   dedicata (cardFxDealTable, con le carte che volano dal centro al posto). */
+   dedicata (activateCardMotion, con le carte che volano dal mazziere al posto). */
 .hand button.hand-card{transition:transform .16s cubic-bezier(.2,.9,.3,1.3);}
 .hand button.hand-card:active{transform:translateY(-10px) scale(1.06);}
 
@@ -1127,54 +1141,6 @@ function cardFxShuffle(backSrc, cx, cy, cardW, cardH){
   });
   return 0.5;
 }
-// Distribuzione a inizio mano: prima una breve mescolata (vedi sopra), poi
-// una carta coperta alla volta vola dal centro dello schermo verso
-// l'esterno, a raggiera, e sparisce — senza puntare a una posizione precisa
-// per ciascun giocatore: e' proprio quel tentativo, fragile e diverso per
-// ogni gioco, ad aver causato i tagli delle versioni precedenti. Il numero
-// di giocatori conta solo per il ritmo dei click.
-function cardFxDealTable(names, myIndex, cardsPerPlayer, opts){
-  opts = opts || {};
-  if(!Array.isArray(names) || names.length<1) return;
-  const n = names.length;
-  cardsPerPlayer = Math.max(1, cardsPerPlayer||1);
-  const totalCards = n*cardsPerPlayer;
-  const shown = Math.min(totalCards, 14); // oltre un tot i lanci ravvicinati si accavallano senza aggiungere nulla
-  const gap = 100;
-  const cardW = 34, cardH = 47;
-  // Centro del viewport corrente (non della card "Distribuzione in corso"):
-  // quella puo' essere molto vicina al bordo superiore su schermi bassi o
-  // con intestazione compatta, e una carta lanciata verso l'alto da li'
-  // finirebbe subito fuori dallo schermo — tagliata dal bordo della
-  // finestra stessa, non dall'immagine. Il centro del viewport lascia
-  // sempre spazio in ogni direzione.
-  const vw = window.innerWidth, vh = window.innerHeight;
-  const cx = vw/2, cy = vh/2;
-  const marginX = cardW/2 + 14, marginY = cardH/2 + 14;
-  const radius = Math.max(50, Math.min(vw, vh) * 0.28);
-  // Il dorso mostrato durante il volo e' quello del mazzo giocato davvero in
-  // quella partita (passato da chi chiama), non sempre lo stesso: Scala 40 e
-  // Poker usano il mazzo "poker", non quello regionale italiano di default.
-  const backSrc = opts.backImg || CARD_IMG['back'] || '';
-  const shuffleDur = opts.skipShuffle ? 0 : cardFxShuffle(backSrc, cx, cy, cardW, cardH);
-  const startDelay = shuffleDur * 1000;
-  for(let i=0;i<shown;i++){
-    setTimeout(()=>{
-      sndCardPlay();
-      const angle = (i * 137.5) * Math.PI/180; // angolo aureo: ogni carta parte in una direzione diversa dalla precedente
-      // Vincolata dentro i margini reali dello schermo: qualunque angolo e
-      // qualunque dimensione di schermo, la carta non puo' mai uscire dal
-      // bordo della finestra (dove verrebbe tagliata) durante il volo.
-      const toX = Math.max(marginX, Math.min(vw-marginX, cx+Math.cos(angle)*radius));
-      const toY = Math.max(marginY, Math.min(vh-marginY, cy+Math.sin(angle)*radius));
-      const from = { left:cx, top:cy, width:0, height:0 };
-      const to = { left:toX, top:toY, width:0, height:0 };
-      flyCardImage(backSrc, from, to, { width:cardW, height:cardH, duration:0.32, rot0:Math.random()*36-18 });
-    }, startDelay + i*gap);
-  }
-  const totalDuration = Math.max(350, startDelay + shown*gap + 200);
-  setTimeout(()=>{ if(typeof opts.onDone==='function') opts.onDone(); }, totalDuration);
-}
 // =========================================================================
 // Carte in movimento: pesca, tiro e passaggio di mano, per TUTTI i giochi
 // di carte e per TUTTI i giocatori (tu, i bot, gli avversari online).
@@ -1202,12 +1168,27 @@ const UNO_BACK_IMG = 'data:image/svg+xml;utf8,'+encodeURIComponent(
   '<ellipse cx="30" cy="42" rx="21" ry="30" fill="#D5262C" transform="rotate(-18 30 42)"/>'+
   '<text x="30" y="48" text-anchor="middle" font-family="Georgia,serif" font-size="15" font-weight="800" fill="#F4B400" transform="rotate(-18 30 42)">UNO</text></svg>');
 
+// Iconcina "carte in mano" accanto all'avatar di ogni posto: e' il dorso
+// VERO del mazzo di quel gioco (regionale, Uno, francese), non un motivo
+// generico uguale per tutti.
+function seatBackSVG(x, y, fs, href, stroke, sw){
+  const w = 18*fs, h = 26*fs;
+  return `<image href="${href}" x="${x-w/2}" y="${y-h/2}" width="${w}" height="${h}" preserveAspectRatio="none"/>`+
+    `<rect x="${x-w/2}" y="${y-h/2}" width="${w}" height="${h}" rx="3" fill="none" stroke="${stroke||'#8C7647'}" stroke-width="${sw||1}"/>`;
+}
 function cardMotionModel(match){
   if(!match) return null;
   const italian = { back: CARD_IMG['back'], face: c=>cardSrc(c.suit, c.rank) };
   const poker = { back: POKER_BACK_IMG, face: c=>scala40ImageHref(c) };
   const owners = {};
   const fromHands = h => Object.keys(h||{}).forEach(pid=>{ if(Array.isArray(h[pid])) owners[pid] = h[pid]; });
+  const model = cardMotionModelBase(match, owners, fromHands, italian, poker);
+  // durante la distribuzione manuale le carte partono dalle mani del mazziere
+  if(model && match.mdeal) model.dealFrom = match.mdeal.dealerId;
+  else if(model && !match.game && match.phase==='dealing' && match.players[match.dealerIdx]) model.dealFrom = match.players[match.dealerIdx].id;
+  return model;
+}
+function cardMotionModelBase(match, owners, fromHands, italian, poker){
   switch(match.game || 'bisca'){
     case 'bisca':      fromHands(match.hands); return { epoch: match.roundIndex, owners, ...italian };
     case 'scopa':      fromHands(match.hands); return { epoch: match.dealNumber||1, owners, ...italian };
@@ -1223,7 +1204,14 @@ function cardMotionModel(match){
     }
     // Nel poker osservo solo le carte comuni: le carte coperte di chi passa
     // o di fine mano non devono MAI volare scoperte sul tavolo.
-    case 'poker':      owners.__table = match.community||[]; return { epoch: match.handNumber, owners, ...poker };
+    // Le carte coperte dei giocatori si osservano solo per vederle ARRIVARE
+    // (distribuzione): quando spariscono (fold, fine mano) nessun volo.
+    case 'poker': {
+      fromHands(match.hands);
+      const silentLeave = Object.keys(owners);
+      owners.__table = match.community||[];
+      return { epoch: match.handNumber, owners, ...poker, silentLeave };
+    }
     case 'blackjack':
       (match.turnOrder||[]).forEach(pid=>{ owners[pid] = bjPlayerHands(match,pid).flatMap(h=>h.cards||[]); });
       owners.__dealer = match.dealerHand||[];
@@ -1265,7 +1253,7 @@ function activateCardMotion(match, claim){
   const myId = claim && claim.type==='seat' ? claim.playerId : null;
   const moves = [];
   Object.keys(loc).forEach(id=>{ if(prev.loc[id]!==loc[id]) moves.push({ id, card: cards[id], from: prev.loc[id]||null, to: loc[id] }); });
-  Object.keys(prev.loc).forEach(id=>{ if(loc[id]===undefined) moves.push({ id, card: prev.cards[id], from: prev.loc[id], to: null }); });
+  Object.keys(prev.loc).forEach(id=>{ if(loc[id]===undefined && !(model.silentLeave||[]).includes(prev.loc[id])) moves.push({ id, card: prev.cards[id], from: prev.loc[id], to: null }); });
   // Destinazione decisa ADESSO, sullo schermo appena disegnato, non quando il
   // volo parte (fino a ~1s dopo, per lo scaglionamento): nel frattempo puo'
   // gia' essere arrivata la mossa successiva — es. un bot che pesca e gioca
@@ -1279,9 +1267,11 @@ function activateCardMotion(match, claim){
 function cardMotionFly(mv, model, prevPileTopId, myId){
   const table = cardMotionTableRect();
   if(!table) return;
-  const fromDiscard = mv.from===null && (model.arriveFromPile || (prevPileTopId && prevPileTopId===mv.id));
+  const fromDiscard = mv.from===null && !model.dealFrom && (model.arriveFromPile || (prevPileTopId && prevPileTopId===mv.id));
   let fromRect;
-  if(mv.from===null){
+  if(mv.from===null && model.dealFrom && model.dealFrom!==mv.to){
+    fromRect = cardMotionSeatRect(model.dealFrom) || table;
+  } else if(mv.from===null){
     fromRect = cardMotionAt(fromDiscard ? '[data-pile]' : '[data-deck]') || table;
   } else if(mv.from===myId && lastHandCardRect && performance.now()-lastHandCardAt < 2500){
     // la carta che hai appena toccato parte esattamente da dove stava nella tua mano
@@ -1298,7 +1288,8 @@ function cardMotionFly(mv, model, prevPileTopId, myId){
   let toRect, img, w = 32, h = 46;
   if(destEl){
     toRect = destEl.getBoundingClientRect();
-    img = model.face(mv.card);
+    // in distribuzione la carta arriva sempre coperta, anche nella tua mano
+    img = model.dealFrom ? model.back : model.face(mv.card);
     w = Math.max(24, Math.min(70, toRect.width));
     h = Math.max(34, Math.min(100, toRect.height));
   } else if(mv.to){
@@ -1319,6 +1310,235 @@ function cardMotionFly(mv, model, prevPileTopId, myId){
   const now = performance.now();
   if(now - cardMotionSoundAt > 70){ cardMotionSoundAt = now; sndCardPlay(); }
   flyCardImage(img, fromRect, toRect, { width:w, height:h, duration:dur, rot0: Math.random()*24-12 });
+}
+// =========================================================================
+// Mazziere manuale per tutti i giochi di carte (Bisca ha il suo, piu' vecchio:
+// vedi dealBiscaCard). Ogni gioco continua a creare la mano come ha sempre
+// fatto, tutta in un colpo; e' setActiveMatch (mdealIntercept) che, al
+// momento di salvarla, se ne accorge, mette da parte le mani gia' decise
+// (finals) e le svuota. Da li' in poi il mazziere le riempie una carta alla
+// volta toccando i posti al tavolo: cosi' non serve toccare uno per uno i
+// tanti punti in cui ogni gioco inizia una mano (partita nuova, mano
+// successiva, rivincita, sala online o da solo...) e la partita resta ferma
+// finche' l'ultima carta non e' stata data (scheduleBotMove, CSS mdeal-on).
+//
+// Regola del "giro", identica a Bisca: il mazziere puo' dare quante carte
+// vuole di fila allo stesso giocatore; appena passa a un altro, la misura si
+// blocca e tutti devono arrivarci prima che inizi un nuovo giro. Chi ha gia'
+// ricevuto tutte le sue carte (es. mazzo che non si divide in parti uguali)
+// conta come "arrivato".
+//
+// Blackjack resta escluso apposta: li' il mazziere e' il banco, non uno dei
+// giocatori seduti, e le carte le dava gia' il banco dalla sabot.
+// =========================================================================
+function mdealPrevOf(ids, id){ const i = ids.indexOf(id); return ids[(i-1+ids.length)%ids.length]; }
+// Per ogni gioco: epoch (cambia a ogni nuova distribuzione), fresh (le mani
+// sono appena state date: nessuno ha ancora mosso), chi distribuisce e in
+// che ordine (dal primo a sinistra del mazziere, il mazziere per ultimo).
+function mdealSpec(m){
+  const ids = m.turnOrder || [];
+  const fromFirst = firstId => { const order = rotateFromId(ids, firstId); return { order, dealerId: order[order.length-1] }; };
+  switch(m.game){
+    case 'scopa': {
+      // anche le ridistribuzioni da 3 a meta' mano: le fa il mazziere
+      const epoch = (m.dealNumber||1)+'/'+(m.remainingDeck||[]).length;
+      const fresh = m.phase==='playing' && !m.captureReveal && !m.pendingCapture && ids.every(pid=>(m.hands[pid]||[]).length>0);
+      return { epoch, fresh, ...fromFirst(ids[m.dealStartIdx||0]), stashTable: m.mdealEpoch===undefined || String(m.mdealEpoch).split('/')[0]!==String(m.dealNumber||1) };
+    }
+    case 'briscola': {
+      const t = m.trick || { plays:[] };
+      const order = (t.turnOrder||ids).slice();
+      return { epoch: String(m.dealNumber||1), fresh: m.phase==='playing' && t.plays.length===0, order, dealerId: order[order.length-1] };
+    }
+    case 'vecia':
+      // un'unica distribuzione per partita, gia' senza le coppie scartate
+      return { epoch: '1', fresh: m.phase==='playing' && !m.lastDraw, ...fromFirst(ids[0]) };
+    case 'cavacamisa':
+      return { epoch: String(m.dealNumber||1), fresh: m.phase==='playing' && !(m.center||[]).length && !m.pendingReveal, ...fromFirst(m.currentId) };
+    case 'uno':
+      return { epoch: String(m.dealNumber||1), fresh: m.phase==='playing' && !m.lastAction, ...fromFirst(m.currentId) };
+    case 'scala40':
+      return { epoch: String(m.dealNumber||1), fresh: m.phase==='playing' && !m.lastAction && m.turnStep==='draw', ...fromFirst(m.currentId) };
+    case 'poker': {
+      // distribuisce chi ha il bottone, cominciando dal primo alla sua sinistra
+      const ord = m.roundOrder || [];
+      if(!ord.length) return null;
+      const order = ord.slice(1).concat(ord.slice(0,1));
+      return { epoch: String(m.handNumber), fresh: m.phase==='betting' && m.street==='preflop' && !(m.community||[]).length, order, dealerId: ord[0] };
+    }
+    default: return null;
+  }
+}
+function mdealIntercept(m){
+  if(!m || !m.game || m.mdeal || !m.hands) return;
+  const spec = mdealSpec(m);
+  if(!spec) return;
+  // partita gia' in corso, iniziata con una versione precedente: si adotta la
+  // mano attuale cosi' com'e', senza svuotare le mani a meta' gioco
+  if(m.mdealEpoch===undefined && (m.rev||0)>0){ m.mdealEpoch = spec.epoch; return; }
+  if(m.mdealEpoch===spec.epoch || !spec.fresh) return;
+  m.mdealEpoch = spec.epoch;
+  const finals = {};
+  let total = 0;
+  spec.order.forEach(pid=>{ finals[pid] = (m.hands[pid]||[]).slice(); total += finals[pid].length; m.hands[pid] = []; });
+  if(!total) return;
+  const md = { dealerId: spec.dealerId, order: spec.order, finals, given:{}, total, cursor:0, pb:0, ps:null, pl:null, auto:false };
+  spec.order.forEach(pid=>{ md.given[pid] = 0; });
+  // Scopa: le 4 carte in tavola compaiono solo a distribuzione finita
+  if(spec.stashTable && m.game==='scopa' && (m.table||[]).length){ md.table = m.table; m.table = []; }
+  m.mdeal = md;
+}
+function mdealCanGive(md, pid){
+  const fin = md.finals[pid];
+  if(!fin) return false;
+  const g = md.given[pid]||0;
+  if(g>=fin.length) return false;
+  const inPass = g - md.pb;
+  if(md.ps!=null) return inPass < md.ps;
+  if(md.pl!=null && md.pl!==pid) return inPass < Math.max(1, (md.given[md.pl]||0) - md.pb);
+  return true;
+}
+// prossimo destinatario per chi distribuisce "da solo" (bot o "dai il resto"):
+// una carta a testa, in giro, rispettando l'eventuale giro gia' aperto a mano
+function mdealNextAuto(md){
+  const n = md.order.length;
+  const start = md.pl!=null ? md.order.indexOf(md.pl)+1 : 0;
+  for(let k=0;k<n;k++){
+    const pid = md.order[(start+k)%n];
+    if(mdealCanGive(md, pid)) return pid;
+  }
+  return null;
+}
+async function mdealGive(matchId, dealerId, toId){
+  const m = await getActiveMatch();
+  if(!m || m.id!==matchId || !m.mdeal) return;
+  const md = m.mdeal;
+  if(md.dealerId!==dealerId || !mdealCanGive(md, toId)) return;
+  if(md.ps==null && md.pl!=null && md.pl!==toId) md.ps = Math.max(1, (md.given[md.pl]||0) - md.pb);
+  const card = md.finals[toId][md.given[toId]];
+  (m.hands[toId] = m.hands[toId]||[]).push(card);
+  md.given[toId]++;
+  md.cursor++;
+  md.pl = toId;
+  if(md.ps!=null){
+    const target = md.pb + md.ps;
+    if(md.order.every(pid=> (md.given[pid]||0)>=Math.min(target, md.finals[pid].length))){
+      md.pb = target; md.ps = null; md.pl = null;
+    }
+  }
+  if(md.cursor>=md.total){
+    md.order.forEach(pid=>{ m.hands[pid] = md.finals[pid]; });
+    if(md.table) m.table = md.table;
+    delete m.mdeal;
+  }
+  await setActiveMatch(m);
+  await render();
+}
+// "Dai il resto": il mazziere umano lascia finire la distribuzione da sola
+async function mdealAutoRest(matchId, dealerId){
+  const m = await getActiveMatch();
+  if(!m || m.id!==matchId || !m.mdeal || m.mdeal.dealerId!==dealerId) return;
+  m.mdeal.auto = true;
+  await setActiveMatch(m);
+  await render();
+}
+function scheduleManualDealMove(match){
+  const md = match.mdeal;
+  const dealer = match.players.find(p=>p.id===md.dealerId);
+  if(!md.auto && !(dealer && dealer.isBot)){ botMoveKey = null; return; }
+  const key = 'mdeal|'+match.id+'|'+match.mdealEpoch+'|'+md.cursor;
+  if(botMoveKey===key) return;
+  botMoveKey = key;
+  if(botMoveTimer) clearTimeout(botMoveTimer);
+  // mazzi lunghi (Cava Camisa, Vecia, Scala 40): piu' svelto, ~6-8 secondi in tutto
+  const delay = md.total<=24 ? 260 : Math.max(120, Math.round(7000/md.total)) + (md.cursor===0 ? 700 : 0); // la prima aspetta la mescolata
+  botMoveTimer = setTimeout(async ()=>{
+    const cur = await getActiveMatch();
+    if(!cur || cur.id!==match.id || !cur.mdeal) return;
+    const to = mdealNextAuto(cur.mdeal);
+    if(to) await mdealGive(cur.id, cur.mdeal.dealerId, to);
+  }, delay);
+}
+// Dopo ogni render: anelli toccabili sui posti, mazziere evidenziato e
+// riga di stato sotto al tavolo. Tutto aggiunto sopra al tavolo gia'
+// disegnato dal gioco, che non deve sapere nulla della distribuzione.
+let mdealShuffledKey = null;
+function activateManualDeal(match, claim){
+  const app = document.getElementById('app');
+  if(!app) return;
+  const md = match && match.mdeal;
+  app.classList.toggle('mdeal-on', !!md);
+  if(!md) return;
+  // mescolata visiva (col dorso del mazzo di QUESTO gioco) sopra al mazziere,
+  // una volta sola per distribuzione, prima che arrivi la prima carta
+  const shuffleKey = match.id+'|'+match.mdealEpoch;
+  if(md.cursor===0 && mdealShuffledKey!==shuffleKey){
+    mdealShuffledKey = shuffleKey;
+    const model = cardMotionModel(match);
+    const r = cardMotionSeatRect(md.dealerId) || cardMotionTableRect();
+    if(model && r) cardFxShuffle(model.back, r.left+r.width/2, r.top+r.height/2, 34, 47);
+  }
+  const myId = claim && claim.type==='seat' ? claim.playerId : null;
+  const dealer = match.players.find(p=>p.id===md.dealerId);
+  const dealerIsBot = !!(dealer && dealer.isBot);
+  const canDeal = !md.auto && !dealerIsBot && (myId ? myId===md.dealerId : (!claim || claim.type==='all'));
+  const NS = 'http://www.w3.org/2000/svg';
+  const mk = (tag, attrs) => { const el = document.createElementNS(NS, tag); Object.keys(attrs).forEach(k=>el.setAttribute(k, attrs[k])); return el; };
+  const avatarOf = g => Array.from(g.querySelectorAll('circle')).find(c=>c.getAttribute('fill')!=='none' && !c.classList.contains('turn-ring'));
+  md.order.concat([md.dealerId]).forEach((pid, k)=>{
+    const g = app.querySelector('svg [data-seat="'+pid+'"]');
+    const av = g && avatarOf(g);
+    if(!av) return;
+    const x = +av.getAttribute('cx'), y = +av.getAttribute('cy'), r = +av.getAttribute('r');
+    if(k===md.order.length){
+      // il mazziere: anello pieno dorato + "M" (nel poker c'e' gia' il bottone "D")
+      g.appendChild(mk('circle', { cx:x, cy:y, r:r+4, fill:'none', stroke:'#D4AF6A', 'stroke-width':2.4 }));
+      if(match.game==='poker') return;
+      const bx = x - r*0.75, by = y - r*0.75;
+      g.appendChild(mk('circle', { cx:bx, cy:by, r:Math.max(6, r*0.32), fill:'#D4AF6A', stroke:'#16261F', 'stroke-width':1 }));
+      const t = mk('text', { x:bx, y:by+Math.max(2.5, r*0.13), 'text-anchor':'middle', 'font-family':"'IBM Plex Mono',monospace", 'font-size':Math.max(7, r*0.36), 'font-weight':700, fill:'#16261F' });
+      t.textContent = 'M';
+      g.appendChild(t);
+      return;
+    }
+    if(!canDeal || !mdealCanGive(md, pid)) return;
+    // stesso accorgimento di Bisca: un cerchio "riempito" trasparente prende
+    // il tocco su tutta l'area, l'anello tratteggiato da solo (fill none) no
+    const hit = mk('circle', { cx:x, cy:y, r:r+10, fill:'transparent', 'data-mdeal':'1', style:'cursor:pointer' });
+    hit.addEventListener('click', ev=>{ ev.stopPropagation(); mdealGive(match.id, md.dealerId, pid); });
+    const ring = mk('circle', { cx:x, cy:y, r:r+9, fill:'none', stroke:'#D4AF6A', 'stroke-width':1.6, 'stroke-dasharray':'3,3', 'pointer-events':'none' });
+    ring.appendChild(mk('animateTransform', { attributeName:'transform', type:'rotate', from:'0 '+x+' '+y, to:'360 '+x+' '+y, dur:'6s', repeatCount:'indefinite' }));
+    g.appendChild(ring);
+    g.appendChild(hit);
+  });
+  // riga di stato al posto del "tocca a..." del gioco (nascosto dal CSS
+  // finche' si distribuisce), o subito sotto al tavolo se il gioco non ce l'ha
+  const turnBar = app.querySelector('.turn-bar');
+  const anySeat = app.querySelector('svg [data-seat]');
+  const wrap = anySeat && (anySeat.closest('.table-wrap') || anySeat.closest('svg').parentElement);
+  if(!turnBar && !wrap) return;
+  const box = document.createElement('div');
+  box.className = 'mdeal-hint';
+  box.setAttribute('data-mdeal', '1');
+  const dealerName = esc(nameOf(match, md.dealerId));
+  let passTxt = '';
+  if(md.ps!=null){
+    const target = md.pb + md.ps;
+    const missing = md.order.filter(pid=>(md.given[pid]||0) < Math.min(target, md.finals[pid].length)).map(pid=>esc(nameOf(match,pid)));
+    passTxt = `Giro da <b>${md.ps}</b> carte a testa · mancano: ${missing.join(', ')}`;
+  } else if(md.pl!=null){
+    passTxt = `Stai dando a <b>${esc(nameOf(match, md.pl))}</b>: tocca un altro posto per fissare il giro a ${(md.given[md.pl]||0)-md.pb}`;
+  } else {
+    passTxt = 'Nuovo giro: decidi tu quante carte dare a testa';
+  }
+  box.innerHTML = canDeal
+    ? `<div class="mdeal-title">► TOCCA UN POSTO AL TAVOLO PER DARE UNA CARTA</div>
+       <div class="mdeal-sub">${passTxt} · ${md.cursor}/${md.total}</div>
+       <button class="btn-secondary btn-small" data-mdeal="1" onclick="mdealAutoRest('${match.id}','${md.dealerId}')">Distribuisci il resto</button>`
+    : `<div class="mdeal-title"><b>${dealerName}</b> sta distribuendo le carte…</div>
+       <div class="mdeal-sub">${md.cursor}/${md.total}</div>`;
+  if(turnBar) turnBar.insertAdjacentElement('beforebegin', box);
+  else wrap.insertAdjacentElement('afterend', box);
 }
 function hudAvatar(name){
   const initial = (name||'?').trim().charAt(0).toUpperCase() || '?';
@@ -1408,6 +1628,8 @@ function currentTurnInfo(match){
 async function scheduleBotMove(){
   const match = await getActiveMatch();
   if(!match) return;
+  // durante la distribuzione manuale la partita e' ferma: nessun bot gioca
+  if(match.mdeal) return scheduleManualDealMove(match);
   if(match.game==='scopa') return scheduleScopaBotMove(match);
   if(match.game==='briscola') return scheduleBriscolaBotMove(match);
   if(match.game==='vecia') return scheduleVeciaBotMove(match);
@@ -1614,6 +1836,7 @@ async function getActiveMatch(){
   }catch(e){ storageStatus='error:'+(e&&e.message?e.message:String(e)); return localOverrideMatch; }
 }
 async function setActiveMatch(m){
+  mdealIntercept(m); // nuova mano appena creata -> la distribuisce il mazziere, vedi mdealIntercept
   m.rev = (m.rev||0) + 1;
   localOverrideMatch = m;
   try{
@@ -2739,6 +2962,7 @@ async function render(force){
     if(match.game==='battaglianavale') activateBattleshipShotAnimation(match, claim);
     if(!match.game) activateBiscaDealAnimation(match);
     activateCardMotion(match, claim);
+    activateManualDeal(match, claim || (match.game ? {type:'all'} : null));
     scheduleBotMove();
     return;
   }
@@ -4259,8 +4483,8 @@ function turnFlowArrowSVG(layout, curIdx, nextIdx, cx, cy, fs, avatarR, centerCl
   const baseX = tipX - ux*arrowLen, baseY = tipY - uy*arrowLen;
 
   return `
-    <path d="M ${a.x.toFixed(1)} ${a.y.toFixed(1)} Q ${ctrl.x.toFixed(1)} ${ctrl.y.toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)}" fill="none" stroke="#D4AF6A" stroke-width="${2.4*fs}" stroke-linecap="round" opacity="0.9"/>
-    <path d="M ${tipX.toFixed(1)} ${tipY.toFixed(1)} L ${(baseX+perpX*arrowW/2).toFixed(1)} ${(baseY+perpY*arrowW/2).toFixed(1)} L ${(baseX-perpX*arrowW/2).toFixed(1)} ${(baseY-perpY*arrowW/2).toFixed(1)} Z" fill="#D4AF6A" opacity="0.9"/>`;
+    <path class="turn-flow" d="M ${a.x.toFixed(1)} ${a.y.toFixed(1)} Q ${ctrl.x.toFixed(1)} ${ctrl.y.toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)}" fill="none" stroke="#D4AF6A" stroke-width="${2.4*fs}" stroke-linecap="round" opacity="0.9"/>
+    <path class="turn-flow" d="M ${tipX.toFixed(1)} ${tipY.toFixed(1)} L ${(baseX+perpX*arrowW/2).toFixed(1)} ${(baseY+perpY*arrowW/2).toFixed(1)} L ${(baseX-perpX*arrowW/2).toFixed(1)} ${(baseY-perpY*arrowW/2).toFixed(1)} Z" fill="#D4AF6A" opacity="0.9"/>`;
 }
 
 function renderTableSVG(match, cards, revealAll, myId){
@@ -4402,7 +4626,7 @@ function renderTableSVG(match, cards, revealAll, myId){
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         ${dealableHere?`<circle cx="${x}" cy="${y}" r="${avatarR+9}" fill="none" stroke="#D4AF6A" stroke-width="1.4" stroke-dasharray="3,3"><animateTransform attributeName="transform" type="rotate" from="0 ${x} ${y}" to="360 ${x} ${y}" dur="6s" repeatCount="indefinite"/></circle>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':'#3C5A4C')}" stroke-width="${isTurn?2.4:1.8}"/>
-        <rect x="${x-9*fs}" y="${y-13*fs}" width="${18*fs}" height="${26*fs}" rx="3" fill="url(#table-cardback)" stroke="#8C7647" stroke-width="1"/>
+        ${seatBackSVG(x, y, fs, CARD_IMG['back'])}
         <circle cx="${x+9*fs}" cy="${y+10*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+9*fs}" y="${y+13.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>
         ${livesDotsSvg}
@@ -4416,10 +4640,6 @@ function renderTableSVG(match, cards, revealAll, myId){
   const tableDefs = `
     <defs>
       <clipPath id="tbl-cardclip"><rect x="${-cardW/2}" y="${-cardH/2}" width="${cardW}" height="${cardH}" rx="${3*cardSc}"/></clipPath>
-      <pattern id="table-cardback" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
-        <rect width="6" height="6" fill="#1E332B"/>
-        <rect width="3" height="6" fill="#3C5A4C"/>
-      </pattern>
       <linearGradient id="feltGrad" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" stop-color="#274539"/>
         <stop offset="60%" stop-color="#1D3730"/>
@@ -4543,7 +4763,7 @@ function renderScopaTableSVG(match, myId){
       <g data-seat="${pid}">
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':(teamTint||'#3C5A4C'))}" stroke-width="${isTurn?2.4:(teamTint?2.2:1.8)}"/>
-        <rect x="${x-9*fs}" y="${y-13*fs}" width="${18*fs}" height="${26*fs}" rx="3" fill="url(#table-cardback2)" stroke="#8C7647" stroke-width="1"/>
+        ${seatBackSVG(x, y, fs, CARD_IMG['back'])}
         <circle cx="${x+9*fs}" cy="${y+10*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+9*fs}" y="${y+13.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>
         ${statSvg}
@@ -4583,10 +4803,6 @@ function renderScopaTableSVG(match, myId){
   const tableDefs = `
     <defs>
       <clipPath id="scopa-cardclip"><rect x="${-tCardW/2}" y="${-tCardH/2}" width="${tCardW}" height="${tCardH}" rx="2.4"/></clipPath>
-      <pattern id="table-cardback2" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
-        <rect width="6" height="6" fill="#1E332B"/>
-        <rect width="3" height="6" fill="#3C5A4C"/>
-      </pattern>
       <linearGradient id="feltGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" stop-color="#274539"/>
         <stop offset="60%" stop-color="#1D3730"/>
@@ -4646,17 +4862,6 @@ function renderScopaMatch(match, claim){
   const revealAll = claim.type==='all';
   const myId = claim.type==='seat' ? claim.playerId : null;
   if(match.phase==='ended') return renderScopaEnd(match, myId);
-  if(myId && match.phase!=='ended'){
-    const dealKey = 'scopa|'+match.id+'|'+(match.dealNumber||1);
-    if(!(dealKey in dealTableAnimState)){
-      dealTableAnimState[dealKey] = 'started';
-      const names = match.turnOrder.map(id=>nameOf(match,id));
-      cardFxDealTable(names, match.turnOrder.indexOf(myId), match.scopone?9:3, {
-        onDone: ()=>{ dealTableAnimState[dealKey]='done'; lastRenderKey=null; render(true); }
-      });
-    }
-    if(dealTableAnimState[dealKey]==='started') return dealWaitingScreenHTML((match.scopone?'Scopone Scientifico':'Scopa')+' · '+esc(nameOf(match,myId)));
-  }
   if(match.phase==='dealEnd'){
     return `
       <div class="card">
@@ -5164,7 +5369,7 @@ function renderBriscolaTableSVG(match, myId){
       <g data-seat="${pid}">
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':(teamTint||'#3C5A4C'))}" stroke-width="${isTurn?2.4:(teamTint?2.2:1.8)}"/>
-        <rect x="${x-9*fs}" y="${y-13*fs}" width="${18*fs}" height="${26*fs}" rx="3" fill="url(#brisc-cardback)" stroke="#8C7647" stroke-width="1"/>
+        ${seatBackSVG(x, y, fs, CARD_IMG['back'])}
         <circle cx="${x+9*fs}" cy="${y+10*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+9*fs}" y="${y+13.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>
         ${statSvg}
@@ -5188,10 +5393,6 @@ function renderBriscolaTableSVG(match, myId){
     <defs>
       <clipPath id="brisc-cardclip"><rect x="${-cardW/2}" y="${-cardH/2}" width="${cardW}" height="${cardH}" rx="${3*cardSc}"/></clipPath>
       <clipPath id="brisc-briscolaclip"><rect x="${-bcW/2}" y="${-bcH/2}" width="${bcW}" height="${bcH}" rx="3"/></clipPath>
-      <pattern id="brisc-cardback" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
-        <rect width="6" height="6" fill="#1E332B"/>
-        <rect width="3" height="6" fill="#3C5A4C"/>
-      </pattern>
       <linearGradient id="feltGrad3" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" stop-color="#274539"/>
         <stop offset="60%" stop-color="#1D3730"/>
@@ -5260,18 +5461,6 @@ function renderBriscolaMatch(match, claim){
   const myId = claim.type==='seat' ? claim.playerId : null;
   if(match.phase==='ended') return renderBriscolaEnd(match, myId);
 
-  if(myId){
-    const dealKey = 'briscola|'+match.id+'|'+(match.dealNumber||1);
-    if(!(dealKey in dealTableAnimState)){
-      dealTableAnimState[dealKey] = 'started';
-      const ids = match.players.map(p=>p.id);
-      const names = match.players.map(p=>p.name);
-      cardFxDealTable(names, ids.indexOf(myId), 3, {
-        onDone: ()=>{ dealTableAnimState[dealKey]='done'; lastRenderKey=null; render(true); }
-      });
-    }
-    if(dealTableAnimState[dealKey]==='started') return dealWaitingScreenHTML('Briscola · '+esc(nameOf(match,myId)));
-  }
 
   if(match.phase==='dealEnd'){
     return `
@@ -5544,7 +5733,7 @@ function renderVeciaTableSVG(match, myId){
     const cardsLeft = (match.hands[pid]||[]).length;
     const isTurn = pid===drawerId && !match.pendingReveal;
     const isMe = pid===myId;
-    const isSafe = cardsLeft===0;
+    const isSafe = cardsLeft===0 && !match.mdeal; // durante la distribuzione 0 carte vuol dire solo "non ancora date"
 
     const displayDirY = dirY!==0 ? dirY : (relY>=0 ? 1 : -1);
     const nameY = y + displayDirY*(avatarR + 26*fs);
@@ -5563,7 +5752,7 @@ function renderVeciaTableSVG(match, myId){
     const handSvg = isSafe
       ? `<text x="${x}" y="${y+5*fs}" text-anchor="middle" font-size="${15*fs}">✅</text>`
       : `
-        <rect x="${x-9*fs}" y="${y-13*fs}" width="${18*fs}" height="${26*fs}" rx="3" fill="url(#vecia-cardback)" stroke="#8C7647" stroke-width="1"/>
+        ${seatBackSVG(x, y, fs, CARD_IMG['back'])}
         <circle cx="${x+9*fs}" cy="${y+10*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+9*fs}" y="${y+13.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>`;
 
@@ -5579,10 +5768,6 @@ function renderVeciaTableSVG(match, myId){
 
   const tableDefs = `
     <defs>
-      <pattern id="vecia-cardback" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
-        <rect width="6" height="6" fill="#1E332B"/>
-        <rect width="3" height="6" fill="#3C5A4C"/>
-      </pattern>
       <linearGradient id="feltGrad4" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" stop-color="#274539"/>
         <stop offset="60%" stop-color="#1D3730"/>
@@ -5619,17 +5804,6 @@ function renderVeciaMatch(match, claim){
   const myId = claim.type==='seat' ? claim.playerId : null;
   if(match.phase==='ended') return renderVeciaEnd(match, myId);
 
-  if(myId){
-    const dealKey = 'vecia|'+match.id;
-    if(!(dealKey in dealTableAnimState)){
-      dealTableAnimState[dealKey] = 'started';
-      const names = match.turnOrder.map(id=>nameOf(match,id));
-      cardFxDealTable(names, match.turnOrder.indexOf(myId), match.hands[myId] ? match.hands[myId].length : 10, {
-        onDone: ()=>{ dealTableAnimState[dealKey]='done'; lastRenderKey=null; render(true); }
-      });
-    }
-    if(dealTableAnimState[dealKey]==='started') return dealWaitingScreenHTML('Vecia · '+esc(nameOf(match,myId)));
-  }
 
   const drawerId = match.turnOrder[match.currentIdx];
   const isMyTurn = !match.pendingReveal && (revealAll || drawerId===myId);
@@ -5939,7 +6113,7 @@ function renderCavaCamisaTableSVG(match, myId){
     const cardsLeft = (match.hands[pid]||[]).length;
     const isTurn = pid===match.currentId && !match.pendingReveal;
     const isMe = pid===myId;
-    const isSafe = cardsLeft===0;
+    const isSafe = cardsLeft===0 && !match.mdeal; // durante la distribuzione 0 carte vuol dire solo "non ancora date"
     const isThrower = match.pendingChallenge && match.pendingChallenge.throwerId===pid;
 
     const displayDirY = relY>=0 ? 1 : -1;
@@ -5959,7 +6133,7 @@ function renderCavaCamisaTableSVG(match, myId){
     const handSvg = isSafe
       ? `<text x="${x}" y="${y+5*fs}" text-anchor="middle" font-size="${15*fs}">💀</text>`
       : `
-        <rect x="${x-9*fs}" y="${y-13*fs}" width="${18*fs}" height="${26*fs}" rx="3" fill="url(#cava-cardback)" stroke="${isThrower?'#D4AF6A':'#8C7647'}" stroke-width="${isThrower?2:1}"/>
+        ${seatBackSVG(x, y, fs, CARD_IMG['back'], isThrower?'#D4AF6A':'#8C7647', isThrower?2:1)}
         <circle cx="${x+9*fs}" cy="${y+10*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+9*fs}" y="${y+13.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>`;
 
@@ -5986,10 +6160,6 @@ function renderCavaCamisaTableSVG(match, myId){
   const tableDefs = `
     <defs>
       <clipPath id="cava-cardclip"><rect x="${-cW/2}" y="${-cH/2}" width="${cW}" height="${cH}" rx="3"/></clipPath>
-      <pattern id="cava-cardback" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
-        <rect width="6" height="6" fill="#1E332B"/>
-        <rect width="3" height="6" fill="#3C5A4C"/>
-      </pattern>
       <linearGradient id="feltGrad5" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" stop-color="#274539"/>
         <stop offset="60%" stop-color="#1D3730"/>
@@ -6060,17 +6230,6 @@ function renderCavaCamisaMatch(match, claim){
   const myId = claim.type==='seat' ? claim.playerId : null;
   if(match.phase==='ended') return renderCavaCamisaEnd(match, myId);
 
-  if(myId){
-    const dealKey = 'cavacamisa|'+match.id+'|'+(match.dealNumber||1);
-    if(!(dealKey in dealTableAnimState)){
-      dealTableAnimState[dealKey] = 'started';
-      const names = match.turnOrder.map(id=>nameOf(match,id));
-      cardFxDealTable(names, match.turnOrder.indexOf(myId), match.hands[myId] ? match.hands[myId].length : 10, {
-        onDone: ()=>{ dealTableAnimState[dealKey]='done'; lastRenderKey=null; render(true); }
-      });
-    }
-    if(dealTableAnimState[dealKey]==='started') return dealWaitingScreenHTML('Cava Camisa · '+esc(nameOf(match,myId)));
-  }
 
   if(match.phase==='dealEnd'){
     return `
@@ -10842,7 +11001,7 @@ function unoTableSVG(match, myId){
       <g data-seat="${pid}">
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':'#3C5A4C')}" stroke-width="${isTurn?2.4:1.8}"/>
-        <rect x="${x-9*fs}" y="${y-13*fs}" width="${18*fs}" height="${26*fs}" rx="3" fill="#161616" stroke="${isUnoRisk?'#D5262C':'#8C7647'}" stroke-width="${isUnoRisk?2:1}"/>
+        ${seatBackSVG(x, y, fs, UNO_BACK_IMG, isUnoRisk?'#D5262C':'#8C7647', isUnoRisk?2:1)}
         <circle cx="${x+9*fs}" cy="${y+10*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+9*fs}" y="${y+13.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>
         <rect x="${lx-pillW/2}" y="${ly-11*fs}" width="${pillW}" height="${19*fs}" rx="${9.5*fs}" fill="rgba(10,20,16,0.92)" stroke="${isTurn?'#D4AF6A':'#3C5A4C'}" stroke-width="1"/>
@@ -10928,18 +11087,6 @@ function renderUnoMatch(match, claim){
   const myId = claim.type==='seat' ? claim.playerId : null;
   if(match.phase==='ended') return renderUnoEnd(match, myId);
 
-  if(myId && match.phase!=='dealEnd'){
-    const dealKey = 'uno|'+match.id+'|'+(match.dealNumber||1);
-    if(!(dealKey in dealTableAnimState)){
-      dealTableAnimState[dealKey] = 'started';
-      const names = match.turnOrder.map(id=>nameOf(match,id));
-      cardFxDealTable(names, match.turnOrder.indexOf(myId), match.hands[myId] ? match.hands[myId].length : 7, {
-        backImg: UNO_BACK_IMG,
-        onDone: ()=>{ dealTableAnimState[dealKey]='done'; lastRenderKey=null; render(true); }
-      });
-    }
-    if(dealTableAnimState[dealKey]==='started') return dealWaitingScreenHTML('UNO · '+esc(nameOf(match,myId)));
-  }
 
   if(match.phase==='dealEnd'){
     const ultima = match.dealHistory[match.dealHistory.length-1];
@@ -11649,18 +11796,6 @@ function renderScala40Match(match, claim){
     maybeShowLoserPopup(match.id, 'scala40-deal-'+ultima.dealNumber, myId, perdentiIds);
   }
 
-  if(myId && match.phase!=='ended'){
-    const dealKey = 'scala40|'+match.id+'|'+match.dealNumber;
-    if(!(dealKey in dealTableAnimState)){
-      dealTableAnimState[dealKey] = 'started';
-      const names = match.turnOrder.map(id=>nameOf(match,id));
-      cardFxDealTable(names, match.turnOrder.indexOf(myId), 13, {
-        backImg: POKER_BACK_IMG,
-        onDone: ()=>{ dealTableAnimState[dealKey]='done'; lastRenderKey=null; render(true); }
-      });
-    }
-    if(dealTableAnimState[dealKey]==='started') return dealWaitingScreenHTML('Scala 40 · '+nameOf(match,myId));
-  }
 
   if(match.phase==='ended'){
     maybeSaveScala40History(match);
@@ -11987,20 +12122,6 @@ function renderPokerMatch(match, claim){
   const myId = claim.type==='seat' ? claim.playerId : null;
   const revealAll = claim.type==='all';
 
-  if(myId && match.phase!=='ended'){
-    const dealKey = 'poker|'+match.id+'|'+match.handNumber;
-    const active = pokerActivePlayers(match);
-    const sonoAttivo = active.some(p=>p.id===myId);
-    if(sonoAttivo && !(dealKey in dealTableAnimState)){
-      dealTableAnimState[dealKey] = 'started';
-      const names = active.map(p=>p.name);
-      cardFxDealTable(names, active.findIndex(p=>p.id===myId), 2, {
-        backImg: POKER_BACK_IMG,
-        onDone: ()=>{ dealTableAnimState[dealKey]='done'; lastRenderKey=null; render(true); }
-      });
-    }
-    if(sonoAttivo && dealTableAnimState[dealKey]==='started') return dealWaitingScreenHTML('Poker · '+esc(nameOf(match,myId)));
-  }
 
   if(match.phase==='ended'){
     maybeSavePokerHistory(match);
@@ -12267,17 +12388,6 @@ let bsCursorRow = 'A';
 let bsCursorCol = 1;
 let rouletteSpinGuard = null;
 let statsRecordGuard = null;
-// Stato dell'animazione di distribuzione per ogni mano ('started' finche' gioca,
-// assente/'done' quando ha finito): mentre e' 'started', il rendering del gioco
-// mostra una schermata di attesa al posto del tavolo vero, cosi' il giocatore
-// non si ritrova le carte gia' in mano PRIMA di vederle arrivare visivamente.
-let dealTableAnimState = {};
-function dealWaitingScreenHTML(gameLabel){
-  return `<div class="card">
-    <div class="toolbar"><span>${esc(gameLabel)}</span></div>
-    <p class="hint" style="text-align:center;margin-top:50px;">Distribuzione delle carte in corso…</p>
-  </div>`;
-}
 let rouletteMode = 'free';
 let blackjackMode = 'free';
 let bsSelectedHorizontal = true;
