@@ -1233,8 +1233,16 @@ function cardMotionTableRect(){
 function cardMotionSeatRect(owner){
   const g = document.querySelector('#app [data-seat="'+owner+'"]');
   if(!g) return null;
-  const anchor = g.querySelector('circle') || g;
-  return anchor.getBoundingClientRect();
+  // NON il primo cerchio qualsiasi: puo' essere l'anello "tocca a te",
+  // nascosto (display:none) durante la distribuzione manuale, che misura
+  // 0x0 in (0,0) e mandava la carta nell'angolo in alto a sinistra.
+  const anchor = Array.from(g.querySelectorAll('circle')).find(c=>{
+    if(c.getAttribute('fill')==='none' || c.classList.contains('turn-ring')) return false;
+    const r = c.getBoundingClientRect();
+    return r.width>0 && r.height>0;
+  });
+  const rect = (anchor || g).getBoundingClientRect();
+  return (rect.width>0 || rect.height>0) ? rect : null;
 }
 function cardMotionAt(sel){
   const el = document.querySelector('#app '+sel);
