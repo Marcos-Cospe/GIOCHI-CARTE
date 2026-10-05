@@ -230,6 +230,7 @@ body.force-share.in-match #sync-panel{display:block !important;}
    Blackjack escluso: la sua riga ha gia' margini propri e su schermi piccoli e' a filo dell'altezza disponibile. */
 .row-pills:not(.bj-pills){display:flex;gap:6px;flex-wrap:wrap;margin:10px 0;}
 .row-pills:not(.bj-pills) .pill{display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:3px 10px;font-size:12.5px;line-height:1.35;}
+.jop-blind .hand-card{box-shadow:0 0 0 2px #D4AF6A;border-radius:6px;}
 .row-pills:not(.bj-pills) .pill b{font-family:'IBM Plex Mono',monospace;color:var(--gold);}
 .room-count{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--cream-dim);white-space:nowrap;}
 .room-players{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
@@ -1196,6 +1197,14 @@ function cardMotionModelBase(match, owners, fromHands, italian, poker){
     case 'scopa':      fromHands(match.hands); return { epoch: match.dealNumber||1, owners, ...italian };
     case 'briscola':   fromHands(match.hands); return { epoch: match.dealNumber||1, owners, ...italian };
     case 'vecia':      fromHands(match.hands); return { epoch: 1, owners, ...italian };
+    case 'joputa':
+      (match.turnOrder||[]).forEach(pid=>{
+        owners[pid] = (match.hands||{})[pid]||[];
+        owners['U:'+pid] = ((match.faceUp||{})[pid]||[]).filter(Boolean);
+        owners['D:'+pid] = ((match.faceDown||{})[pid]||[]).filter(Boolean);
+      });
+      owners.__pile = match.pile||[];
+      return { epoch: match.dealNumber||1, owners, ...poker };
     // chi si prende il mazzetto centrale lo riceve dal centro, non dal mazzo
     case 'cavacamisa': fromHands(match.hands); return { epoch: match.dealNumber||1, owners, ...italian, arriveFromPile: true };
     case 'uno':        fromHands(match.hands); return { epoch: match.dealNumber||1, owners, back: UNO_BACK_IMG, face: c=>unoCardImageHref(c) };
@@ -1360,6 +1369,8 @@ function mdealSpec(m){
       const order = (t.turnOrder||ids).slice();
       return { epoch: String(m.dealNumber||1), fresh: m.phase==='playing' && t.plays.length===0, order, dealerId: order[order.length-1] };
     }
+    case 'joputa':
+      return { epoch: String(m.dealNumber||1), fresh: m.phase==='swap' && !m.turnOrder.some(id=>m.ready[id]), ...fromFirst(m.firstId) };
     case 'vecia':
       // un'unica distribuzione per partita, gia' senza le coppie scartate
       return { epoch: '1', fresh: m.phase==='playing' && !m.lastDraw, ...fromFirst(ids[0]) };
@@ -1390,7 +1401,15 @@ function mdealIntercept(m){
   m.mdealEpoch = spec.epoch;
   const finals = {};
   let total = 0;
-  spec.order.forEach(pid=>{ finals[pid] = (m.hands[pid]||[]).slice(); total += finals[pid].length; m.hands[pid] = []; });
+  spec.order.forEach(pid=>{
+    // Joputa: 9 carte a testa, nell'ordine coperte, scoperte, mano (vedi mdealGive)
+    finals[pid] = m.game==='joputa'
+      ? m.faceDown[pid].concat(m.faceUp[pid], m.hands[pid])
+      : (m.hands[pid]||[]).slice();
+    total += finals[pid].length;
+    m.hands[pid] = [];
+    if(m.game==='joputa'){ m.faceDown[pid] = []; m.faceUp[pid] = []; }
+  });
   if(!total) return;
   const md = { dealerId: spec.dealerId, order: spec.order, finals, given:{}, total, cursor:0, pb:0, ps:null, pl:null, auto:false };
   spec.order.forEach(pid=>{ md.given[pid] = 0; });
@@ -1426,7 +1445,13 @@ async function mdealGive(matchId, dealerId, toId){
   if(md.dealerId!==dealerId || !mdealCanGive(md, toId)) return;
   if(md.ps==null && md.pl!=null && md.pl!==toId) md.ps = Math.max(1, (md.given[md.pl]||0) - md.pb);
   const card = md.finals[toId][md.given[toId]];
-  (m.hands[toId] = m.hands[toId]||[]).push(card);
+  if(m.game==='joputa'){
+    // le prime 3 coperte sul tavolo, le 3 dopo scoperte sopra, le ultime 3 in mano
+    const k = md.given[toId];
+    (k<3 ? m.faceDown[toId] : k<6 ? m.faceUp[toId] : m.hands[toId]).push(card);
+  } else {
+    (m.hands[toId] = m.hands[toId]||[]).push(card);
+  }
   md.given[toId]++;
   md.cursor++;
   md.pl = toId;
@@ -1437,7 +1462,12 @@ async function mdealGive(matchId, dealerId, toId){
     }
   }
   if(md.cursor>=md.total){
-    md.order.forEach(pid=>{ m.hands[pid] = md.finals[pid]; });
+    md.order.forEach(pid=>{
+      if(m.game==='joputa'){
+        const f = md.finals[pid];
+        m.faceDown[pid] = f.slice(0,3); m.faceUp[pid] = f.slice(3,6); m.hands[pid] = f.slice(6);
+      } else m.hands[pid] = md.finals[pid];
+    });
     if(md.table) m.table = md.table;
     delete m.mdeal;
   }
@@ -1643,6 +1673,7 @@ async function scheduleBotMove(){
   if(match.game==='scopa') return scheduleScopaBotMove(match);
   if(match.game==='briscola') return scheduleBriscolaBotMove(match);
   if(match.game==='vecia') return scheduleVeciaBotMove(match);
+  if(match.game==='joputa') return scheduleJoputaBotMove(match);
   if(match.game==='cavacamisa') return scheduleCavaCamisaBotMove(match);
   if(match.game==='uno') return scheduleUnoBotMove(match);
   if(match.game==='scala40') return scheduleScala40BotMove(match);
@@ -2002,6 +2033,9 @@ function stateKeyOf(match, claim){
     const vinte = match.handWins ? Object.keys(match.handWins).sort().map(k=>k+':'+match.handWins[k]).join(',') : '';
     return [match.id, match.rev||0, match.dealNumber||1, match.phase, match.remainingDeck.length, mani, prese, plays, resolved, vinte, claimKey, syncDiverged?'DIV':''].join('|');
   }
+  if(match.game==='joputa'){
+    return [match.id, match.rev||0, match.phase, match.currentId, claimKey, syncDiverged?'DIV':''].join('|');
+  }
   if(match.game==='vecia'){
     const mani = match.turnOrder.map(id=>(match.hands[id]||[]).length).join(',');
     const reveal = match.pendingReveal && match.lastDraw ? 'R'+match.lastDraw.drawerId+':'+match.lastDraw.fromId+':'+match.lastDraw.rank+':'+match.lastDraw.matched : '';
@@ -2159,6 +2193,7 @@ function roomFormatMax(room){
   if(room.game==='scopa') return scopaFormatPlayers(room.format||'1v1');
   if(room.game==='briscola') return briscolaFormatPlayers(room.format||'1v1');
   if(room.game==='vecia') return VECIA_MAX_PLAYERS;
+  if(room.game==='joputa') return JOPUTA_MAX_PLAYERS;
   if(room.game==='cavacamisa') return CAVA_MAX_PLAYERS;
   if(room.game==='uno') return UNO_MAX_PLAYERS;
   if(room.game==='scala40') return SCALA40_MAX_PLAYERS;
@@ -2259,6 +2294,8 @@ async function addRoomBot(){
       ? 'Il formato '+room.format+' richiede esattamente '+max+' giocatori (umani + bot).'
       : room.game==='vecia'
         ? 'Massimo '+max+' giocatori (umani + bot) a Vecia.'
+      : room.game==='joputa'
+        ? 'Massimo '+max+' giocatori (umani + bot) a Joputa.'
         : room.game==='cavacamisa'
           ? 'Massimo '+max+' giocatori (umani + bot) a Cava Camisa.'
           : room.game==='uno'
@@ -2331,6 +2368,21 @@ async function startRoomMatch(){
     if(totale!==need){ alert('Il formato '+room.format+' richiede esattamente '+need+' giocatori (umani + bot); ora siete '+totale+'.'); return; }
     const names = room.players.concat(bots);
     const match = buildBriscolaMatch(room.id, names, room.format);
+    match.players.forEach((p,i)=>{ if(i>=room.players.length) p.isBot=true; });
+    await setActiveMatch(match);
+    room.started = true;
+    await upsertRoom(room);
+    lastRenderKey = null;
+    await render(true);
+    return;
+  }
+  if(room.game==='joputa'){
+    const bots = room.bots||[];
+    const totale = room.players.length + bots.length;
+    if(totale<2){ alert('Servono almeno 2 giocatori (umani o bot).'); return; }
+    if(totale>JOPUTA_MAX_PLAYERS){ alert('Massimo '+JOPUTA_MAX_PLAYERS+' giocatori a Joputa.'); return; }
+    const names = room.players.concat(bots);
+    const match = buildJoputaMatch(room.id, names);
     match.players.forEach((p,i)=>{ if(i>=room.players.length) p.isBot=true; });
     await setActiveMatch(match);
     room.started = true;
@@ -2525,13 +2577,13 @@ function renderLobby(rooms){
   const aperte = rooms.filter(s=>!s.started);
   const inCorso = rooms.filter(s=>s.started);
   const lista = aperte.length ? aperte.map(s=>{
-    const label = s.game==='scopa' ? 'Scopa' : (s.game==='briscola' ? 'Briscola' : (s.game==='vecia' ? 'Vecia' : (s.game==='cavacamisa' ? 'Cava Camisa' : (s.game==='uno' ? 'UNO' : (s.game==='scala40' ? 'Scala 40' : (s.game==='poker' ? 'Poker' : (s.game==='forza4' ? 'Forza 4' : (s.game==='battaglianavale' ? 'Battaglia Navale' : (s.game==='dama' ? 'Dama' : (s.game==='scacchi' ? 'Scacchi' : (s.game==='roulette' ? 'Roulette' : (s.game==='blackjack' ? 'Black Jack' : 'Bisca'))))))))))));
+    const label = s.game==='scopa' ? 'Scopa' : (s.game==='briscola' ? 'Briscola' : (s.game==='joputa' ? 'Joputa' : s.game==='vecia' ? 'Vecia' : (s.game==='cavacamisa' ? 'Cava Camisa' : (s.game==='uno' ? 'UNO' : (s.game==='scala40' ? 'Scala 40' : (s.game==='poker' ? 'Poker' : (s.game==='forza4' ? 'Forza 4' : (s.game==='battaglianavale' ? 'Battaglia Navale' : (s.game==='dama' ? 'Dama' : (s.game==='scacchi' ? 'Scacchi' : (s.game==='roulette' ? 'Roulette' : (s.game==='blackjack' ? 'Black Jack' : 'Bisca'))))))))))));
     const max = roomFormatMax(s);
     return `
     <div class="room-card">
       <div class="room-top">
         <span class="room-name">${esc(s.name)} <span class="game-tag">${label}</span></span>
-        <span class="room-count">${s.players.length + (s.bots?s.bots.length:0)}/${max}${(s.game==='scopa'||s.game==='briscola'||s.game==='vecia'||s.game==='cavacamisa'||s.game==='uno'||s.game==='scala40'||s.game==='poker'||s.game==='forza4'||s.game==='battaglianavale'||s.game==='dama'||s.game==='scacchi'||s.game==='roulette'||s.game==='blackjack')?'':' · '+s.lives+' vite'}</span>
+        <span class="room-count">${s.players.length + (s.bots?s.bots.length:0)}/${max}${(s.game==='scopa'||s.game==='briscola'||s.game==='joputa'||s.game==='vecia'||s.game==='cavacamisa'||s.game==='uno'||s.game==='scala40'||s.game==='poker'||s.game==='forza4'||s.game==='battaglianavale'||s.game==='dama'||s.game==='scacchi'||s.game==='roulette'||s.game==='blackjack')?'':' · '+s.lives+' vite'}</span>
       </div>
       <div class="room-players">${s.players.map(p=>`<span class="room-chip">${esc(p)}</span>`).join('')}${(s.bots||[]).map(b=>`<span class="room-chip bot">${esc(b)} 🤖</span>`).join('')}</div>
       <div class="player-input-row" style="margin-top:10px;">
@@ -2787,6 +2839,7 @@ function renderCreaSala(){
     <div id="scala40-options-slot">${selectedGame==='scala40' ? scala40OptionsPanel() : ''}</div>
     <div id="poker-options-slot">${selectedGame==='poker' ? pokerOptionsPanel() : ''}</div>
     <div id="forza4-options-slot">${selectedGame==='forza4' ? forza4OptionsPanel() : ''}</div>
+    ${selectedGame==='joputa' ? `<p class="hint" style="margin-top:8px;">Da 2 a ${JOPUTA_MAX_PLAYERS} giocatori, mazzo doppio da Scala 40 con i jolly. 3 carte coperte, 3 scoperte sopra e 3 in mano; prima di iniziare puoi scambiare mano e scoperte. Si gioca una carta (o più uguali) uguale o più alta, altrimenti si raccoglie la pila; finché c'è il mazzo si torna a 3 in mano. Speciali: 2 azzera, 10 brucia e rigiochi, 7 trasparente, 4 fa saltare il turno, Jolly su tutto (dopo serve un Asso o un Jolly); 4 uguali di fila bruciano. L'ultimo con le carte è il Joputa.</p>` : ''}
     ${selectedGame==='vecia' ? `<p class="hint" style="margin-top:8px;">Da 2 a ${VECIA_MAX_PLAYERS} giocatori. Si pesca a turno una carta coperta dal vicino di sinistra: chi resta con l'unico Fante di Spade spaiato è la Vecia. Partita secca, nessun punteggio.</p>` : ''}
     ${selectedGame==='battaglianavale' ? `<p class="hint" style="margin-top:8px;">Sempre e solo 2 giocatori. Posiziona le tue 5 navi, poi a turno tenta di colpire quelle nascoste dell'avversario. Chi affonda per primo tutta la flotta vince.</p>` : ''}
     ${selectedGame==='dama' ? `<p class="hint" style="margin-top:8px;">Sempre e solo 2 giocatori. Regole della Dama Italiana: la pedina cattura anche all'indietro ma non può mai catturare una dama, e la cattura è sempre obbligatoria.</p>` : ''}
@@ -2795,7 +2848,7 @@ function renderCreaSala(){
     ${selectedGame==='roulette' ? `<p class="hint" style="margin-top:8px;">Da 1 a ${ROULETTE_MAX_PLAYERS} giocatori, ognuno gioca contro il banco con le proprie fiches. Roulette europea, 37 numeri.</p>` : ''}
     <div id="blackjack-options-slot">${selectedGame==='blackjack' ? blackjackOptionsPanel() : ''}</div>
     ${selectedGame==='blackjack' ? `<p class="hint" style="margin-top:8px;">Da 1 a ${BJ_MAX_PLAYERS} giocatori, ognuno gioca contro il banco con le proprie fiches. Blackjack (asso+10) paga 3:2.</p>` : ''}
-    ${(selectedGame==='scopa'||selectedGame==='briscola'||selectedGame==='vecia'||selectedGame==='cavacamisa'||selectedGame==='uno'||selectedGame==='scala40'||selectedGame==='poker'||selectedGame==='forza4'||selectedGame==='battaglianavale'||selectedGame==='dama'||selectedGame==='scacchi'||selectedGame==='roulette'||selectedGame==='blackjack'||selectedGame==='risiko') ? '' : `<div id="lives-slot">${livesSelector()}</div>`}
+    ${(selectedGame==='scopa'||selectedGame==='briscola'||selectedGame==='joputa'||selectedGame==='vecia'||selectedGame==='cavacamisa'||selectedGame==='uno'||selectedGame==='scala40'||selectedGame==='poker'||selectedGame==='forza4'||selectedGame==='battaglianavale'||selectedGame==='dama'||selectedGame==='scacchi'||selectedGame==='roulette'||selectedGame==='blackjack'||selectedGame==='risiko') ? '' : `<div id="lives-slot">${livesSelector()}</div>`}
     <div class="row-btns" style="margin-top:16px;">
       <button class="btn-secondary" onclick="lobbyView='lobby'; render(true)">Indietro</button>
       <button class="btn-primary" onclick="createRoom()">Crea</button>
@@ -2817,7 +2870,7 @@ function renderRoom(room){
   const dama = room.game==='dama';
   const scacchi = room.game==='scacchi';
   const formatoFisso = scopa || briscola;
-  const gameLabel = scopa ? 'Scopa' : (briscola ? 'Briscola' : (vecia ? 'Vecia' : (cavacamisa ? 'Cava Camisa' : (uno ? 'UNO' : (scala40 ? 'Scala 40' : (poker ? 'Poker' : (forza4 ? 'Forza 4' : (battaglianavale ? 'Battaglia Navale' : (dama ? 'Dama' : (scacchi ? 'Scacchi' : (room.game==='roulette' ? 'Roulette' : (room.game==='blackjack' ? 'Black Jack' : 'Bisca'))))))))))));
+  const gameLabel = scopa ? 'Scopa' : (briscola ? 'Briscola' : (room.game==='joputa' ? 'Joputa' : vecia ? 'Vecia' : (cavacamisa ? 'Cava Camisa' : (uno ? 'UNO' : (scala40 ? 'Scala 40' : (poker ? 'Poker' : (forza4 ? 'Forza 4' : (battaglianavale ? 'Battaglia Navale' : (dama ? 'Dama' : (scacchi ? 'Scacchi' : (room.game==='roulette' ? 'Roulette' : (room.game==='blackjack' ? 'Black Jack' : 'Bisca'))))))))))));
   const bots = Array.isArray(room.bots) ? room.bots : [];
   const totale = room.players.length + bots.length;
   const need = roomFormatMax(room);
@@ -2850,6 +2903,8 @@ function renderRoom(room){
       ? `<p class="hint" style="margin-top:12px;">${room.players.length}/${need} giocatori · formato ${room.format} · a ${room.target} punti<br>Regole: ${regoleAttive||'nessuna (solo scope)'}</p>`
       : briscola
         ? `<p class="hint" style="margin-top:12px;">${totale}/${need} al tavolo${bots.length?' ('+room.players.length+' in carne e ossa + '+bots.length+' bot)':''} · formato ${room.format}</p>`
+        : room.game==='joputa'
+          ? `<p class="hint" style="margin-top:12px;">${totale}/${need} al tavolo${bots.length?' ('+room.players.length+' in carne e ossa + '+bots.length+' bot)':''} · partita secca, l'ultimo con le carte è il Joputa</p>`
         : vecia
           ? `<p class="hint" style="margin-top:12px;">${totale}/${need} al tavolo${bots.length?' ('+room.players.length+' in carne e ossa + '+bots.length+' bot)':''} · partita secca</p>`
           : cavacamisa
@@ -2938,6 +2993,8 @@ async function render(force){
       ? renderScopaMatch(match, claim || {type:'all'})
       : match.game==='briscola'
         ? renderBriscolaMatch(match, claim || {type:'all'})
+        : match.game==='joputa'
+          ? renderJoputaMatch(match, claim || {type:'all'})
         : match.game==='vecia'
           ? renderVeciaMatch(match, claim || {type:'all'})
           : match.game==='cavacamisa'
@@ -3061,7 +3118,7 @@ function renderSoloSetup(){
   const roulette = selectedGame==='roulette';
   const blackjack = selectedGame==='blackjack';
   const formatoFisso = scopa || briscola;
-  const maxBot = scopa ? 3 : (vecia ? VECIA_MAX_PLAYERS-1 : (cavacamisa ? CAVA_MAX_PLAYERS-1 : (uno ? UNO_MAX_PLAYERS-1 : (scala40 ? SCALA40_MAX_PLAYERS-1 : (poker ? POKER_MAX_PLAYERS-1 : (forza4 ? F4_MAX_PLAYERS-1 : (battaglianavale ? BS_MAX_PLAYERS-1 : (dama ? DAMA_MAX_PLAYERS-1 : (scacchi ? CHESS_MAX_PLAYERS-1 : (roulette ? ROULETTE_MAX_PLAYERS-1 : (blackjack ? BJ_MAX_PLAYERS-1 : 7)))))))))));
+  const maxBot = scopa ? 3 : (selectedGame==='joputa' ? JOPUTA_MAX_PLAYERS-1 : vecia ? VECIA_MAX_PLAYERS-1 : (cavacamisa ? CAVA_MAX_PLAYERS-1 : (uno ? UNO_MAX_PLAYERS-1 : (scala40 ? SCALA40_MAX_PLAYERS-1 : (poker ? POKER_MAX_PLAYERS-1 : (forza4 ? F4_MAX_PLAYERS-1 : (battaglianavale ? BS_MAX_PLAYERS-1 : (dama ? DAMA_MAX_PLAYERS-1 : (scacchi ? CHESS_MAX_PLAYERS-1 : (roulette ? ROULETTE_MAX_PLAYERS-1 : (blackjack ? BJ_MAX_PLAYERS-1 : 7)))))))))));
   const botCount = Math.min(soloBotCount, maxBot);
   return `
   <div class="card">
@@ -3083,7 +3140,8 @@ function renderSoloSetup(){
         <span id="bot-count-label" style="font-family:'IBM Plex Mono',monospace;font-size:16px;min-width:20px;text-align:center;display:inline-block;">${botCount}</span>
         <button class="btn-secondary btn-small" type="button" onclick="changeBotCount(1)">+</button>
       </div>
-      ${vecia ? `<p class="hint" style="margin-top:8px;">Si pesca a turno una carta coperta dal vicino di sinistra: chi resta con l'unico Fante di Spade spaiato è la Vecia.</p>`
+      ${selectedGame==='joputa' ? `<p class="hint" style="margin-top:8px;">Da 2 a ${JOPUTA_MAX_PLAYERS} giocatori, mazzo doppio da Scala 40 con i jolly. 3 carte coperte, 3 scoperte sopra e 3 in mano; prima di iniziare puoi scambiare mano e scoperte. Si gioca una carta (o più uguali) uguale o più alta, altrimenti si raccoglie la pila; finché c'è il mazzo si torna a 3 in mano. Speciali: 2 azzera, 10 brucia e rigiochi, 7 trasparente, 4 fa saltare il turno, Jolly su tutto (dopo serve un Asso o un Jolly); 4 uguali di fila bruciano. L'ultimo con le carte è il Joputa.</p>`
+        : vecia ? `<p class="hint" style="margin-top:8px;">Si pesca a turno una carta coperta dal vicino di sinistra: chi resta con l'unico Fante di Spade spaiato è la Vecia.</p>`
         : cavacamisa ? `<div id="cavacamisa-options-slot">${cavaCamisaOptionsPanel()}</div>`
         : uno ? `<div id="uno-options-slot">${unoOptionsPanel()}</div>`
         : scala40 ? `<div id="scala40-options-slot">${scala40OptionsPanel()}</div>`
@@ -3105,7 +3163,7 @@ const GAME_CATEGORIES = [
   { title:'Giochi di carte', games: [
     {id:'bisca', label:'Bisca'}, {id:'scopa', label:'Scopa'}, {id:'briscola', label:'Briscola'},
     {id:'vecia', label:'Vecia'}, {id:'cavacamisa', label:'Cava Camisa'}, {id:'uno', label:'UNO'},
-    {id:'scala40', label:'Scala 40'}, {id:'poker', label:'Poker'}
+    {id:'scala40', label:'Scala 40'}, {id:'poker', label:'Poker'}, {id:'joputa', label:'Joputa'}
   ]},
   { title:'Giochi da tavolo', games: [
     {id:'forza4', label:'Forza 4'}, {id:'battaglianavale', label:'Battaglia Navale'},
@@ -3145,7 +3203,7 @@ function setStartingLives(v){
 }
 function setSetupMode(mode){ setupMode=mode; render(); }
 function changeBotCount(delta){
-  const max = selectedGame==='scopa' ? 3 : (selectedGame==='vecia' ? VECIA_MAX_PLAYERS-1 : (selectedGame==='cavacamisa' ? CAVA_MAX_PLAYERS-1 : (selectedGame==='uno' ? UNO_MAX_PLAYERS-1 : (selectedGame==='scala40' ? SCALA40_MAX_PLAYERS-1 : (selectedGame==='poker' ? POKER_MAX_PLAYERS-1 : (selectedGame==='risiko' ? 5 : 7))))));
+  const max = selectedGame==='scopa' ? 3 : (selectedGame==='joputa' ? JOPUTA_MAX_PLAYERS-1 : selectedGame==='vecia' ? VECIA_MAX_PLAYERS-1 : (selectedGame==='cavacamisa' ? CAVA_MAX_PLAYERS-1 : (selectedGame==='uno' ? UNO_MAX_PLAYERS-1 : (selectedGame==='scala40' ? SCALA40_MAX_PLAYERS-1 : (selectedGame==='poker' ? POKER_MAX_PLAYERS-1 : (selectedGame==='risiko' ? 5 : 7))))));
   const min = selectedGame==='risiko' ? 2 : 1;
   soloBotCount = Math.max(min, Math.min(max, soloBotCount+delta));
   const label = document.getElementById('bot-count-label');
@@ -3190,6 +3248,17 @@ async function startSoloMatch(){
     const names = [yourName];
     for(let i=1;i<need;i++) names.push('Bot '+i);
     const match = buildBriscolaMatch('m'+Date.now(), names, briscolaFormat);
+    match.players.forEach((p,i)=>{ if(i>0) p.isBot=true; });
+    await setActiveMatch(match);
+    await setClaim(match.id, {type:'seat', playerId:'p0'});
+    await render();
+    return;
+  }
+
+  if(selectedGame==='joputa'){
+    const names = [yourName];
+    for(let i=1;i<=Math.min(soloBotCount, JOPUTA_MAX_PLAYERS-1);i++) names.push('Bot '+i);
+    const match = buildJoputaMatch('m'+Date.now(), names);
     match.players.forEach((p,i)=>{ if(i>0) p.isBot=true; });
     await setActiveMatch(match);
     await setClaim(match.id, {type:'seat', playerId:'p0'});
@@ -3889,7 +3958,7 @@ async function backToLobbyFromEnd(){
 function packMatch(m){
   // le partite di Scopa e Briscola hanno una forma diversa (niente previsioni/prese a
   // mano di Bisca), e sono gia' leggere di loro: non passano per questa compressione.
-  if(m.game==='scopa' || m.game==='briscola' || m.game==='vecia' || m.game==='cavacamisa' || m.game==='uno' || m.game==='scala40' || m.game==='poker' || m.game==='forza4' || m.game==='battaglianavale' || m.game==='dama' || m.game==='scacchi' || m.game==='roulette' || m.game==='blackjack') return m;
+  if(m.game==='scopa' || m.game==='briscola' || m.game==='joputa' || m.game==='vecia' || m.game==='cavacamisa' || m.game==='uno' || m.game==='scala40' || m.game==='poker' || m.game==='forza4' || m.game==='battaglianavale' || m.game==='dama' || m.game==='scacchi' || m.game==='roulette' || m.game==='blackjack') return m;
   // partite iniziate con una versione precedente non hanno il seme: le mani non
   // sarebbero ricostruibili, quindi restano nel formato esteso.
   if(m.seed===undefined || m.seed===null) return m;
@@ -3925,7 +3994,7 @@ function packMatch(m){
   return p;
 }
 function unpackMatch(p){
-  if(!p || p.game==='scopa' || p.game==='briscola' || p.game==='vecia' || p.game==='cavacamisa' || p.game==='uno' || p.game==='scala40' || p.game==='poker' || p.game==='forza4' || p.game==='battaglianavale' || p.game==='dama' || p.game==='scacchi' || p.game==='roulette' || p.game==='blackjack') return p; // gia' nella forma giusta
+  if(!p || p.game==='scopa' || p.game==='briscola' || p.game==='joputa' || p.game==='vecia' || p.game==='cavacamisa' || p.game==='uno' || p.game==='scala40' || p.game==='poker' || p.game==='forza4' || p.game==='battaglianavale' || p.game==='dama' || p.game==='scacchi' || p.game==='roulette' || p.game==='blackjack') return p; // gia' nella forma giusta
   if(!p.i) return p; // formato non compresso: lascia com'e'
   const m = {
     id:p.i, seed:p.s, createdAt:p.t, startingLives:p.L, roundIndex:p.r,
@@ -5898,6 +5967,599 @@ function renderVeciaEnd(match, myId){
     <div class="card">
       <h2>Partita di Vecia finita</h2>
       <p class="hint">😱 <b>${esc(nameOf(match,loser))}</b> è rimasto con il Fante di Spade: è la Vecia!</p>
+      ${rows}
+      <button class="btn-primary" style="margin-top:14px;" onclick="backToLobbyFromEnd()">Torna alla lobby</button>
+    </div>`;
+}
+
+// =========================================================================
+// JOPUTA — mazzo doppio da Scala 40 (108 carte, 4 jolly), da 2 a 6 giocatori.
+// Ognuno riceve 3 carte coperte sul tavolo, 3 scoperte sopra di esse e 3 in
+// mano; prima di iniziare puo' scambiare liberamente mano e scoperte.
+// A turno si gioca sulla pila al centro una carta (o piu' carte uguali)
+// uguale o piu' alta di quella da battere; chi non puo' raccoglie tutta la
+// pila e salta il turno. Finche' c'e' il mazzo si torna sempre a 3 carte in
+// mano; a mazzo finito, svuotata la mano si giocano le scoperte, poi le
+// coperte alla cieca. L'ultimo che resta con delle carte e' il Joputa.
+//
+// Carte speciali:
+//  - 2  : si gioca su tutto e azzera la pila (dopo, va bene qualsiasi carta);
+//  - 10 : si gioca su tutto, brucia la pila e chi l'ha giocato rigioca;
+//  - 7  : trasparente, si gioca su tutto e non cambia il valore da battere
+//         (chi viene dopo deve superare la carta sotto il 7);
+//  - 4  : fa saltare il turno al giocatore successivo (uno per ogni 4 giocato);
+//  - Jolly: si gioca su tutto e porta la pila al massimo: dopo serve un Asso
+//         o un altro Jolly, altrimenti si raccoglie.
+// Quattro carte uguali di fila in cima alla pila la bruciano, come il 10.
+// Ordine: 3 < 4 < 5 < 6 < 8 < 9 < 10 < J < Q < K < A.
+// =========================================================================
+const JOPUTA_MAX_PLAYERS = 6;
+const JOPUTA_VAL = {'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13,'A':14};
+const JOPUTA_BOT_THINK_MS = 900;
+
+function joputaKey(c){ return c.kind==='jolly' ? 'JOLLY' : c.rank; }
+function joputaKeyLabel(k){ return k==='JOLLY' ? 'Jolly' : k; }
+// Cosa c'e' da battere: si guarda la pila dall'alto saltando i 7 (trasparenti).
+function joputaEffective(pile){
+  for(let i=pile.length-1; i>=0; i--){
+    const c = pile[i];
+    if(c.kind!=='jolly' && c.rank==='7') continue;
+    if(c.kind==='jolly') return { jolly:true, card:c };
+    if(c.rank==='2') return { free:true, reset:true };
+    return { value: JOPUTA_VAL[c.rank], card:c };
+  }
+  return { free:true };
+}
+function joputaCanPlay(card, pile){
+  const e = joputaEffective(pile);
+  const k = joputaKey(card);
+  if(e.jolly) return k==='JOLLY' || k==='A';
+  if(k==='JOLLY' || k==='2' || k==='10' || k==='7') return true;
+  if(e.free) return true;
+  return JOPUTA_VAL[k] >= e.value;
+}
+function joputaTargetText(pile){
+  const e = joputaEffective(pile);
+  if(e.jolly) return 'Jolly: serve un Asso o un Jolly';
+  if(e.free) return e.reset ? 'Azzerata dal 2: va bene tutto' : 'Pila libera: va bene tutto';
+  return 'Da battere: '+joputaKeyLabel(joputaKey(e.card))+' o più';
+}
+// forza "di tenuta" di una carta: serve ai bot per scegliere cosa lasciare scoperto
+function joputaStrength(c){
+  const k = joputaKey(c);
+  if(k==='JOLLY') return 100;
+  if(k==='10') return 90;
+  if(k==='2') return 85;
+  if(k==='7') return 40;
+  return JOPUTA_VAL[k];
+}
+function joputaSortHand(hand){
+  return hand.slice().sort((a,b)=> joputaStrength(a)-joputaStrength(b) || String(a.suit||'').localeCompare(String(b.suit||'')));
+}
+
+function buildJoputaMatch(id, names){
+  const players = names.map((name,i)=>({id:'p'+i, name, isBot:false}));
+  const ids = players.map(p=>p.id);
+  const deck = shuffle(buildScala40Deck());
+  const dealerIdx = Math.floor(Math.random()*ids.length);
+  const firstId = ids[(dealerIdx+1)%ids.length];
+  const order = rotateFromId(ids, firstId);
+  const faceDown = {}, faceUp = {}, hands = {}, ready = {};
+  ids.forEach(pid=>{ faceDown[pid]=[]; faceUp[pid]=[]; hands[pid]=[]; ready[pid]=false; });
+  // come al tavolo: prima un giro di coperte, poi uno di scoperte, poi la mano
+  for(let i=0;i<3;i++) order.forEach(pid=>faceDown[pid].push(deck.pop()));
+  for(let i=0;i<3;i++) order.forEach(pid=>faceUp[pid].push(deck.pop()));
+  for(let i=0;i<3;i++) order.forEach(pid=>hands[pid].push(deck.pop()));
+  return {
+    id, game:'joputa', createdAt:new Date().toISOString(),
+    players, turnOrder: ids, dealNumber:1, dealerIdx, firstId,
+    hands, faceUp, faceDown, ready,
+    drawPile: deck, pile: [], burned: 0,
+    phase: 'swap', currentId: firstId, finished: [],
+    lastAction: null, _loserId: null
+  };
+}
+
+function joputaActiveIds(m){ return m.turnOrder.filter(pid=>!m.finished.includes(pid)); }
+function joputaSource(m, pid){
+  if((m.hands[pid]||[]).length) return 'hand';
+  if((m.faceUp[pid]||[]).some(Boolean)) return 'up';
+  if((m.faceDown[pid]||[]).some(Boolean)) return 'down';
+  return null;
+}
+function joputaRefill(m, pid){
+  const hand = m.hands[pid];
+  while(hand.length<3 && m.drawPile.length) hand.push(m.drawPile.pop());
+}
+function joputaNextId(m, fromId, skip){
+  const ids = m.turnOrder, n = ids.length;
+  let idx = ids.indexOf(fromId), steps = (skip||0) + 1, guard = 0;
+  while(steps>0 && guard<n*8){
+    idx = (idx+1)%n; guard++;
+    if(!m.finished.includes(ids[idx])) steps--;
+  }
+  return ids[idx];
+}
+// fine partita: resta un solo giocatore con delle carte, e' lui il Joputa
+function joputaCheckEnd(m){
+  const active = joputaActiveIds(m);
+  if(active.length>1) return false;
+  m.phase = 'ended';
+  m._loserId = active[0] || null;
+  return true;
+}
+function joputaMarkFinished(m, pid){
+  if(joputaSource(m, pid)===null && !m.drawPile.length && !m.finished.includes(pid)){
+    m.finished.push(pid);
+    return true;
+  }
+  return false;
+}
+// Mette sulla pila le carte giocate e applica gli effetti. Le carte sono gia'
+// state tolte da dove stavano (mano, scoperte o coperte).
+function joputaApplyPlay(m, pid, cards, extra){
+  m.pile.push(...cards);
+  const k = joputaKey(cards[0]);
+  let run = 0;
+  for(let i=m.pile.length-1; i>=0 && joputaKey(m.pile[i])===k; i--) run++;
+  const burn = k==='10' || run>=4;
+  joputaRefill(m, pid);
+  const done = joputaMarkFinished(m, pid);
+  if(burn){ m.burned += m.pile.length; m.pile = []; }
+  const skip = k==='4' ? cards.length : 0;
+  m.lastAction = Object.assign({ type:'play', playerId:pid, cards, burn, four: run>=4 && k!=='10', done }, extra||{});
+  if(joputaCheckEnd(m)) return;
+  if(burn && !done){ m.currentId = pid; m.lastAction.again = true; return; }
+  if(skip){
+    const skipped = [];
+    let cur = pid;
+    for(let i=0;i<skip;i++){ cur = joputaNextId(m, cur, 0); skipped.push(cur); }
+    m.lastAction.skipped = skipped;
+  }
+  m.currentId = joputaNextId(m, pid, skip);
+}
+function joputaCheckTurn(m, matchId, pid){
+  return m && m.id===matchId && m.game==='joputa' && m.phase==='playing' && !m.mdeal && m.currentId===pid;
+}
+
+// --- Scambio iniziale ---------------------------------------------------
+async function joputaSwap(matchId, pid, handCardId, upIdx){
+  const m = await getActiveMatch();
+  if(!m || m.id!==matchId || m.phase!=='swap' || m.mdeal || m.ready[pid]) return;
+  const hand = m.hands[pid], up = m.faceUp[pid];
+  const hi = hand.findIndex(c=>c.id===handCardId);
+  if(hi<0 || !up[upIdx]) return;
+  const tmp = hand[hi]; hand[hi] = up[upIdx]; up[upIdx] = tmp;
+  await setActiveMatch(m);
+  await render();
+}
+function joputaStartIfReady(m){
+  if(m.turnOrder.every(pid=>m.ready[pid])){
+    m.phase = 'playing';
+    m.currentId = m.firstId;
+    m.lastAction = { type:'start', playerId: m.firstId };
+  }
+}
+async function joputaReady(matchId, pid){
+  const m = await getActiveMatch();
+  if(!m || m.id!==matchId || m.phase!=='swap' || m.mdeal) return;
+  m.ready[pid] = true;
+  joputaStartIfReady(m);
+  await setActiveMatch(m);
+  await render();
+}
+// i bot lasciano scoperte le 3 carte piu' "di tenuta" tra le 6 che vedono
+function joputaBotSwap(m, pid){
+  const all = m.hands[pid].concat(m.faceUp[pid]).sort((a,b)=>joputaStrength(b)-joputaStrength(a));
+  m.faceUp[pid] = all.slice(0,3);
+  m.hands[pid] = all.slice(3);
+  m.ready[pid] = true;
+}
+
+// --- Mosse di gioco -----------------------------------------------------
+async function joputaPlay(matchId, pid, source, ids){
+  const m = await getActiveMatch();
+  if(!joputaCheckTurn(m, matchId, pid) || !ids || !ids.length) return {ok:false};
+  if(joputaSource(m, pid)!==source || (source!=='hand' && source!=='up')) return {ok:false, reason:'Ora devi giocare dalle carte '+(joputaSource(m,pid)==='hand'?'in mano':joputaSource(m,pid)==='up'?'scoperte':'coperte')+'.'};
+  const pool = source==='hand' ? m.hands[pid] : m.faceUp[pid];
+  const cards = ids.map(id=>pool.find(c=>c && c.id===id));
+  if(cards.some(c=>!c)) return {ok:false};
+  const k = joputaKey(cards[0]);
+  if(cards.some(c=>joputaKey(c)!==k)) return {ok:false, reason:'Insieme puoi giocare solo carte dello stesso valore.'};
+  if(!joputaCanPlay(cards[0], m.pile)) return {ok:false, reason:'Questa carta non basta: '+joputaTargetText(m.pile)+'.'};
+  if(source==='hand') m.hands[pid] = m.hands[pid].filter(c=>!ids.includes(c.id));
+  else m.faceUp[pid] = m.faceUp[pid].map(c=> c && ids.includes(c.id) ? null : c);
+  joputaApplyPlay(m, pid, cards, { from: source });
+  if(m.phase==='ended') await maybeSaveJoputaHistory(m);
+  await setActiveMatch(m);
+  await render();
+  return {ok:true};
+}
+async function joputaPlayBlind(matchId, pid, slot){
+  const m = await getActiveMatch();
+  if(!joputaCheckTurn(m, matchId, pid) || joputaSource(m, pid)!=='down') return;
+  const card = m.faceDown[pid][slot];
+  if(!card) return;
+  m.faceDown[pid][slot] = null;
+  if(joputaCanPlay(card, m.pile)){
+    joputaApplyPlay(m, pid, [card], { from:'down', blind:true });
+  } else {
+    const count = m.pile.length + 1;
+    m.hands[pid].push(...m.pile, card);
+    m.pile = [];
+    m.lastAction = { type:'blindFail', playerId:pid, card, count };
+    m.currentId = joputaNextId(m, pid, 0);
+  }
+  if(m.phase==='ended') await maybeSaveJoputaHistory(m);
+  await setActiveMatch(m);
+  await render();
+}
+function joputaHasLegalMove(m, pid){
+  const src = joputaSource(m, pid);
+  if(src==='down') return true; // alla cieca si prova sempre
+  const pool = src==='hand' ? m.hands[pid] : (m.faceUp[pid]||[]).filter(Boolean);
+  return pool.some(c=>joputaCanPlay(c, m.pile));
+}
+async function joputaPickUp(matchId, pid){
+  const m = await getActiveMatch();
+  if(!joputaCheckTurn(m, matchId, pid) || !m.pile.length || joputaHasLegalMove(m, pid)) return;
+  const count = m.pile.length;
+  m.hands[pid].push(...m.pile);
+  m.pile = [];
+  m.lastAction = { type:'pickup', playerId:pid, count };
+  m.currentId = joputaNextId(m, pid, 0);
+  await setActiveMatch(m);
+  await render();
+}
+
+// --- Bot ------------------------------------------------------------------
+// Gioca il valore normale piu' basso che puo' (tutte le copie insieme), tiene
+// le speciali per quando non ha altro; alla cieca gira la prima coperta.
+function joputaBotChoice(m, pid){
+  const src = joputaSource(m, pid);
+  if(src==='down') return { type:'blind', slot: m.faceDown[pid].findIndex(Boolean) };
+  const pool = src==='hand' ? m.hands[pid] : m.faceUp[pid].filter(Boolean);
+  const legal = pool.filter(c=>joputaCanPlay(c, m.pile));
+  if(!legal.length) return { type:'pickup' };
+  const groups = {};
+  legal.forEach(c=>{ const k=joputaKey(c); (groups[k]=groups[k]||[]).push(c); });
+  const special = k => k==='2' || k==='10' || k==='7' || k==='JOLLY';
+  let key = Object.keys(groups).filter(k=>!special(k)).sort((a,b)=>JOPUTA_VAL[a]-JOPUTA_VAL[b])[0];
+  // pila grossa e un 10 in mano: meglio bruciarla che lasciarla crescere
+  if(groups['10'] && m.pile.length>=6) key = '10';
+  if(!key) key = ['7','2','10','JOLLY'].find(k=>groups[k]);
+  return { type:'play', source: src, ids: groups[key].map(c=>c.id) };
+}
+async function scheduleJoputaBotMove(match){
+  if(!match || match.phase==='ended') return;
+  if(match.phase==='swap'){
+    const bots = match.players.filter(p=>p.isBot && !match.ready[p.id]);
+    if(!bots.length) return;
+    const key = 'joputaSwap|'+match.id+'|'+bots.map(b=>b.id).join(',');
+    if(botMoveKey===key) return;
+    botMoveKey = key;
+    if(botMoveTimer) clearTimeout(botMoveTimer);
+    botMoveTimer = setTimeout(async ()=>{
+      const cur = await getActiveMatch();
+      if(!cur || cur.id!==match.id || cur.phase!=='swap' || cur.mdeal) return;
+      cur.players.forEach(p=>{ if(p.isBot && !cur.ready[p.id]) joputaBotSwap(cur, p.id); });
+      joputaStartIfReady(cur);
+      await setActiveMatch(cur);
+      await render();
+    }, 700);
+    return;
+  }
+  const p = match.players.find(x=>x.id===match.currentId);
+  if(!p || !p.isBot){ botMoveKey = null; return; }
+  const key = 'joputa|'+match.id+'|'+match.rev;
+  if(botMoveKey===key) return;
+  botMoveKey = key;
+  if(botMoveTimer) clearTimeout(botMoveTimer);
+  botMoveTimer = setTimeout(async ()=>{
+    const cur = await getActiveMatch();
+    if(!cur || cur.id!==match.id || cur.phase!=='playing' || cur.currentId!==p.id) return;
+    const ch = joputaBotChoice(cur, p.id);
+    if(ch.type==='blind') await joputaPlayBlind(cur.id, p.id, ch.slot);
+    else if(ch.type==='pickup') await joputaPickUp(cur.id, p.id);
+    else await joputaPlay(cur.id, p.id, ch.source, ch.ids);
+  }, JOPUTA_BOT_THINK_MS);
+}
+
+async function maybeSaveJoputaHistory(match){
+  if(match.phase!=='ended' || match._historySaved) return;
+  match._historySaved = true;
+  const historyEntry = {
+    id:match.id, date:match.createdAt, endedAt:new Date().toISOString(),
+    game:'joputa', loser: nameOf(match, match._loserId),
+    players: match.players.map(p=>({name:p.name, isBot:p.isBot, isLoser:p.id===match._loserId,
+      rank: match.finished.indexOf(p.id)>=0 ? match.finished.indexOf(p.id)+1 : null})),
+    solo: match.players.some(p=>p.isBot)
+  };
+  const history = await getHistory();
+  history.unshift(historyEntry);
+  await saveHistory(history);
+  if(myRoomId){
+    try{ const list=(await getRooms()).filter(s=>s.id!==myRoomId); await saveRooms(list); }catch(e){}
+  }
+}
+
+// --- Interfaccia ----------------------------------------------------------
+let joputaSel = new Set();      // carte selezionate per giocarle (stesso valore)
+let joputaSelSource = null;     // 'hand' | 'up'
+let joputaSwapPick = null;      // scambio iniziale: {kind:'hand', id} | {kind:'up', idx}
+let joputaErrorMsg = '';
+let joputaSelKey = null;
+function joputaResetSelIfNewTurn(match){
+  const key = match.id+'|'+match.phase+'|'+match.currentId+'|'+(match.pile||[]).length+'|'+(match.lastAction?JSON.stringify(match.lastAction).length:0);
+  if(joputaSelKey!==key){ joputaSelKey = key; joputaSel = new Set(); joputaSelSource = null; joputaErrorMsg = ''; }
+}
+function joputaImg(card, w, h, extra){
+  return `<img src="${scala40ImageHref(card)}" style="width:${w}px;height:${h}px;object-fit:contain;display:block;${extra||''}" onerror="this.style.opacity=0.15" alt="${esc(scala40CardLabel(card))}"/>`;
+}
+function joputaToggle(source, cardId){
+  const m = localOverrideMatch;
+  if(!m) return;
+  const pool = source==='hand' ? (m.hands[joputaViewer(m)]||[]) : (m.faceUp[joputaViewer(m)]||[]).filter(Boolean);
+  const card = pool.find(c=>c.id===cardId);
+  if(!card) return;
+  if(joputaSelSource!==source) { joputaSel = new Set(); joputaSelSource = source; }
+  // solo carte dello stesso valore insieme: toccarne una diversa ricomincia la scelta
+  const first = pool.find(c=>joputaSel.has(c.id));
+  if(first && joputaKey(first)!==joputaKey(card)) joputaSel = new Set();
+  if(joputaSel.has(cardId)) joputaSel.delete(cardId); else joputaSel.add(cardId);
+  joputaErrorMsg = '';
+  render(true);
+}
+let joputaViewerId = null;
+function joputaViewer(m){ return joputaViewerId; }
+async function joputaPlaySelected(matchId, pid){
+  if(!joputaSel.size) return;
+  const res = await joputaPlay(matchId, pid, joputaSelSource, [...joputaSel]);
+  if(res && res.ok){ joputaSel = new Set(); joputaSelSource = null; joputaErrorMsg = ''; }
+  else { joputaErrorMsg = (res && res.reason) || 'Mossa non valida.'; render(true); }
+}
+function joputaSwapTap(matchId, pid, kind, key){
+  if(!joputaSwapPick || joputaSwapPick.kind===kind){
+    joputaSwapPick = (joputaSwapPick && joputaSwapPick.kind===kind && joputaSwapPick.key===key) ? null : { kind, key };
+    render(true);
+    return;
+  }
+  const handId = kind==='hand' ? key : joputaSwapPick.key;
+  const upIdx = kind==='up' ? key : joputaSwapPick.key;
+  joputaSwapPick = null;
+  joputaSwap(matchId, pid, handId, upIdx);
+}
+
+function joputaActionText(m){
+  const a = m.lastAction;
+  if(!a) return '';
+  const who = esc(nameOf(m, a.playerId));
+  if(a.type==='start') return `Si comincia: tocca a <b>${who}</b>`;
+  if(a.type==='pickup') return `${who} non può giocare e raccoglie la pila (${a.count} cart${a.count===1?'a':'e'})`;
+  if(a.type==='blindFail') return `${who} gira alla cieca ${esc(scala40CardLabel(a.card))}: non va, raccoglie la pila (${a.count} carte)`;
+  if(a.type==='play'){
+    const k = joputaKey(a.cards[0]);
+    let t = `${who} ${a.blind?'gira alla cieca e gioca':'gioca'} ${a.cards.length>1?a.cards.length+'× ':''}${a.cards.length>1?joputaKeyLabel(k):esc(scala40CardLabel(a.cards[0]))}`;
+    if(a.burn) t += a.four ? ' — 4 uguali: 🔥 pila bruciata!' : ' — 🔥 pila bruciata!';
+    else if(k==='2') t += ' — pila azzerata';
+    else if(k==='7') t += ' — trasparente';
+    else if(k==='JOLLY') t += ' — ora serve un Asso o un Jolly';
+    if(a.skipped && a.skipped.length) t += ' — salta '+a.skipped.map(id=>esc(nameOf(m,id))).join(', ');
+    if(a.done) t += ` — <b>${who} ha finito le carte!</b> ✅`;
+    else if(a.again) t += ' e rigioca';
+    return t;
+  }
+  return '';
+}
+
+function joputaTableSVG(match, myId){
+  const ids = rotateIdsForMe(match.turnOrder, myId);
+  const n = ids.length;
+  const C = tableConfig(n);
+  const VB = C.VB, fs = C.fs;
+  const cx = VB/2, cy = VB/2, half = C.half, avatarR = C.avatarR;
+  const layout = rectSeatLayout(half, half, n);
+  const cw = 17.5*fs, ch = 24.5*fs, gap = 2.5*fs;
+  let seats = '', slotsSvg = '';
+  ids.forEach((pid,i)=>{
+    const {x:relX, y:relY} = layout[i];
+    const x = cx+relX, y = cy+relY;
+    const player = match.players.find(p=>p.id===pid);
+    const inHand = (match.hands[pid]||[]).length;
+    const isTurn = match.phase==='playing' && pid===match.currentId;
+    const isMe = pid===myId;
+    const done = match.finished.includes(pid);
+    const pos = match.finished.indexOf(pid);
+    const displayDirY = relY>=0 ? 1 : -1;
+    const nameY = y + displayDirY*(avatarR + 26*fs);
+    let nm = player.name.length>10 ? player.name.slice(0,9)+'…' : player.name;
+    const label = esc(nm) + (isMe?' (tu)':(player.isBot?' ᴀɪ':'')) + (done?' ✅'+(pos+1):'') + (match.phase==='swap' && match.ready[pid] ? ' ✓' : '');
+    const pillW = Math.max(52*fs, label.length*7*fs + 16);
+    const lx = Math.max(pillW/2+3, Math.min(VB-pillW/2-3, x));
+    seats += `
+      <g data-seat="${pid}">
+        ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
+        <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':'#3C5A4C')}" stroke-width="${isTurn?2.4:1.8}" opacity="${done?0.5:1}"/>
+        ${done ? `<text x="${x}" y="${y+5*fs}" text-anchor="middle" font-size="${15*fs}">✅</text>` : `${seatBackSVG(x, y, fs, POKER_BACK_IMG)}
+        <circle cx="${x+9*fs}" cy="${y+10*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
+        <text x="${x+9*fs}" y="${y+13.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${inHand}</text>`}
+        <rect x="${lx-pillW/2}" y="${nameY-11*fs}" width="${pillW}" height="${19*fs}" rx="${9.5*fs}" fill="rgba(10,20,16,0.92)" stroke="${isTurn?'#D4AF6A':'#3C5A4C'}" stroke-width="1"/>
+        <text x="${lx}" y="${nameY+3*fs}" text-anchor="middle" font-family="'Fraunces',serif" font-size="${12*fs}" font-weight="700" fill="${isTurn?'#D4AF6A':'#F1ECE1'}">${label}</text>
+      </g>`;
+    // le 3 coperte con sopra le 3 scoperte, sul lato del posto verso il centro
+    const len = Math.hypot(relX, relY) || 1;
+    const nx = -relX/len, ny = -relY/len;
+    const side = Math.abs(relX) > Math.abs(relY)*1.2; // posti sui lati: carte in colonna
+    const dist = avatarR + (side ? 22 : 24)*fs;
+    const sx = x + nx*dist, sy = y + ny*dist;
+    const slotPos = k => side ? { x: sx - cw/2, y: sy - ch/2 + (k-1)*(ch*0.62) } : { x: sx - cw/2 + (k-1)*(cw+gap), y: sy - ch/2 };
+    let downG = '', upG = '';
+    const area = side
+      ? { x: sx-cw/2-2, y: sy-ch/2-ch*0.62-2, w: cw+4, h: ch+2*ch*0.62+4 }
+      : { x: sx-cw*1.5-gap-2, y: sy-ch/2-2, w: 3*cw+2*gap+4, h: ch+4 };
+    for(let k=0;k<3;k++){
+      const p = slotPos(k);
+      const d = (match.faceDown[pid]||[])[k];
+      const u = (match.faceUp[pid]||[])[k];
+      if(d) downG += `<image href="${POKER_BACK_IMG}" x="${p.x}" y="${p.y}" width="${cw}" height="${ch}" preserveAspectRatio="none"/>`;
+      if(u) upG += `<image data-card="${u.id}" href="${scala40ImageHref(u)}" x="${p.x-1.5*fs}" y="${p.y-2.5*fs}" width="${cw}" height="${ch}" preserveAspectRatio="xMidYMid meet"/>`;
+    }
+    slotsSvg += `<g data-seat="D:${pid}"><rect x="${area.x}" y="${area.y}" width="${area.w}" height="${area.h}" fill="transparent" pointer-events="none"/>${downG}</g>`;
+    slotsSvg += `<g data-seat="U:${pid}"><rect x="${area.x}" y="${area.y}" width="${area.w}" height="${area.h}" fill="transparent" pointer-events="none"/>${upG}</g>`;
+  });
+  // centro: mazzo da pescare, pila, carte bruciate
+  const pcw = 38*fs, pch = 54*fs;
+  const top = match.pile[match.pile.length-1];
+  const under = top && joputaKey(top)==='7' ? joputaEffective(match.pile).card : null;
+  const deckSvg = match.drawPile.length
+    ? `<g data-deck><image href="${POKER_BACK_IMG}" x="${cx-pcw-6*fs}" y="${cy-pch/2-6*fs}" width="${pcw}" height="${pch}" preserveAspectRatio="none"/></g>
+       <text x="${cx-pcw/2-6*fs}" y="${cy+pch/2+4*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${8*fs}" fill="#B9C4BC">mazzo ${match.drawPile.length}</text>`
+    : `<text x="${cx-pcw/2-6*fs}" y="${cy}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${8*fs}" fill="#6C8078">mazzo finito</text>`;
+  const pileSvg = `
+    <g data-pile data-seat="__pile" ${top?`data-card="${top.id}"`:''}>
+      <rect x="${cx+6*fs}" y="${cy-pch/2-6*fs}" width="${pcw}" height="${pch}" rx="${3*fs}" fill="rgba(0,0,0,.18)" stroke="#3C5A4C" stroke-dasharray="3,3"/>
+      ${under ? `<image href="${scala40ImageHref(under)}" x="${cx+6*fs-5*fs}" y="${cy-pch/2-10*fs}" width="${pcw}" height="${pch}" opacity="0.55" preserveAspectRatio="xMidYMid meet"/>` : ''}
+      ${top ? `<image href="${scala40ImageHref(top)}" x="${cx+6*fs}" y="${cy-pch/2-6*fs}" width="${pcw}" height="${pch}" preserveAspectRatio="xMidYMid meet"/>` : ''}
+    </g>
+    <text x="${cx+6*fs+pcw/2}" y="${cy+pch/2+4*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${8*fs}" fill="#B9C4BC">pila ${match.pile.length}${match.burned?' · 🔥'+match.burned:''}</text>`;
+  const curIdx = match.phase==='playing' ? ids.indexOf(match.currentId) : -1;
+  let nextIdx = -1;
+  if(curIdx>=0){ const nid = joputaNextId(match, match.currentId, 0); nextIdx = ids.indexOf(nid); }
+  const flowArrowSvg = turnFlowArrowSVG(layout, curIdx, nextIdx, cx, cy, fs, avatarR, C.centerHalf*fs);
+  const outerPad = 30*fs, feltR = 20*fs;
+  return `
+    <div class="table-wrap">
+      <svg viewBox="0 0 ${VB} ${VB}" width="100%" class="table-svg">
+        <defs><linearGradient id="feltGradJop" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#274539"/><stop offset="60%" stop-color="#1D3730"/><stop offset="100%" stop-color="#132520"/>
+        </linearGradient></defs>
+        <rect x="${cx-half-outerPad}" y="${cy-half-outerPad}" width="${2*(half+outerPad)}" height="${2*(half+outerPad)}" rx="${feltR}" fill="url(#feltGradJop)" stroke="#4A6B5B" stroke-width="2"/>
+        ${flowArrowSvg}
+        ${deckSvg}
+        ${pileSvg}
+        ${slotsSvg}
+        ${seats}
+      </svg>
+    </div>`;
+}
+
+function renderJoputaMatch(match, claim){
+  const revealAll = claim.type==='all';
+  const seatId = claim.type==='seat' ? claim.playerId : null;
+  if(match.phase==='ended') return renderJoputaEnd(match, seatId);
+  joputaResetSelIfNewTurn(match);
+  // in visione condivisa (un solo schermo per tutti) si mostra chi deve muovere
+  const myId = revealAll ? (match.phase==='swap' ? (match.turnOrder.find(id=>!match.ready[id] && !(match.players.find(p=>p.id===id)||{}).isBot) || match.turnOrder[0]) : match.currentId) : seatId;
+  joputaViewerId = myId;
+  const meP = match.players.find(p=>p.id===myId);
+  const iAmHuman = !!(meP && !meP.isBot);
+  const actionText = joputaActionText(match);
+  const actionBanner = actionText ? `<div class="turn-banner">${actionText}</div>` : '';
+  const errorBanner = joputaErrorMsg ? `<div class="turn-banner" style="border-color:#D5262C;background:rgba(213,38,44,.12);">${esc(joputaErrorMsg)}</div>` : '';
+  const tableSvg = joputaTableSVG(match, seatId);
+  const hand = joputaSortHand((myId && match.hands[myId]) || []);
+  const up = (myId && match.faceUp[myId]) || [];
+  const down = (myId && match.faceDown[myId]) || [];
+  const header = `
+      <div class="toolbar">
+        <span>Joputa · ${revealAll?'tutti visibili':esc(nameOf(match,seatId))}</span>
+        <button class="btn-danger btn-small" onclick="abandonMatch()">Abbandona</button>
+      </div>`;
+
+  // le mie 3 posizioni sul tavolo: coperta sotto, scoperta sopra
+  const slotsHtml = (opts) => `<div style="display:flex;gap:12px;justify-content:center;margin:8px 0 4px;">${[0,1,2].map(k=>{
+      const d = down[k], u = up[k];
+      const upSel = opts.upSelected && opts.upSelected(k, u);
+      const upClick = u && opts.upClick ? opts.upClick(k, u) : '';
+      const downClick = !u && d && opts.downClick ? opts.downClick(k) : '';
+      return `<div style="position:relative;width:58px;height:86px;">
+        ${d ? `<div ${downClick?`onclick="${downClick}" style="cursor:pointer;"`:''} class="${downClick?'jop-blind':''}">${pokerCardBack(52,74)}</div>` : `<div style="width:52px;height:74px;border:1px dashed #3C5A4C;border-radius:6px;"></div>`}
+        ${u ? `<div data-card="${u.id}" ${upClick?`onclick="${upClick}"`:''} style="position:absolute;left:6px;top:10px;cursor:${upClick?'pointer':'default'};border-radius:6px;${upSel?'box-shadow:0 0 0 3px #D4AF6A;transform:translateY(-6px);':''}transition:transform .12s;">${joputaImg(u,52,74)}</div>` : ''}
+      </div>`;
+    }).join('')}</div>`;
+
+  if(match.phase==='swap'){
+    const ready = myId && match.ready[myId];
+    const canSwap = myId && iAmHuman && !ready && !match.mdeal;
+    const pick = joputaSwapPick;
+    const handHtml = `<div class="hand-grid6">${hand.map(c=>{
+      const sel = pick && pick.kind==='hand' && pick.key===c.id;
+      return `<span class="hand-card ${canSwap?'':'waiting'}" data-card="${c.id}" onclick="${canSwap?`joputaSwapTap('${match.id}','${myId}','hand','${c.id}')`:''}" style="${sel?'box-shadow:0 0 0 3px #D4AF6A;border-radius:8px;transform:translateY(-6px);':''}transition:transform .12s;">${joputaImg(c,52,74)}</span>`;
+    }).join('')}</div>`;
+    const waiting = match.turnOrder.filter(id=>!match.ready[id]).map(id=>esc(nameOf(match,id)));
+    return `
+    <div class="card">
+      ${header}
+      <div class="turn-bar ${canSwap?'mine':''}">${canSwap ? '► SCAMBIO INIZIALE: tocca una carta in mano e una scoperta per scambiarle' : (ready ? 'Pronto ✓ — aspetta: '+waiting.join(', ') : 'Scambio iniziale in corso…')}</div>
+      ${tableSvg}
+      <h2>Le tue carte sul tavolo</h2>
+      <p class="hint" style="margin-top:-8px;">Le coperte non si possono guardare. Le scoperte stanno sopra.</p>
+      ${slotsHtml({ upSelected:(k)=> pick && pick.kind==='up' && pick.key===k, upClick: canSwap ? (k)=>`joputaSwapTap('${match.id}','${myId}','up',${k})` : null })}
+      <h2>La tua mano</h2>
+      ${handHtml}
+      ${canSwap ? `<button class="btn-primary" style="width:100%;margin-top:12px;" onclick="joputaSwapPick=null; joputaReady('${match.id}','${myId}')">Sono pronto ✓</button>` : ''}
+    </div>`;
+  }
+
+  const isMyTurn = myId && iAmHuman && match.currentId===myId && !match.mdeal;
+  const src = myId ? joputaSource(match, myId) : null;
+  const canHand = isMyTurn && src==='hand';
+  const canUp = isMyTurn && src==='up';
+  const canDown = isMyTurn && src==='down';
+  const legal = isMyTurn ? joputaHasLegalMove(match, myId) : true;
+  const turnBar = `<div class="turn-bar ${isMyTurn?'mine':''}">${isMyTurn
+    ? (revealAll ? 'Tocca a <b>'+esc(nameOf(match,myId))+'</b>' : '► TOCCA A TE')+' · '+esc(joputaTargetText(match.pile))
+    : 'Tocca a <b>'+esc(nameOf(match,match.currentId))+'</b> — aspetta <button class="refresh-mini" onclick="forceResync()" title="Aggiorna">⟳</button>'}</div>`;
+  const handHtml = hand.length ? `<div class="hand-grid6">${hand.map(c=>{
+    const sel = joputaSelSource==='hand' && joputaSel.has(c.id);
+    const ok = canHand && joputaCanPlay(c, match.pile);
+    return `<span class="hand-card ${canHand?(ok?'':'disabled'):'waiting'}" data-card="${c.id}" onclick="${canHand?`joputaToggle('hand','${c.id}')`:''}" style="${sel?'box-shadow:0 0 0 3px #D4AF6A;border-radius:8px;transform:translateY(-6px);':''}transition:transform .12s;">${joputaImg(c,52,74)}</span>`;
+  }).join('')}</div>` : `<p class="hint">${src ? 'Mano vuota: ora giochi dalle carte sul tavolo.' : 'Hai finito le carte! ✅'}</p>`;
+  const btns = [];
+  if((canHand || canUp) && joputaSel.size){
+    const first = [...joputaSel][0];
+    const pool = canHand ? hand : up.filter(Boolean);
+    const c = pool.find(x=>x.id===first);
+    btns.push(`<button class="btn-primary" onclick="joputaPlaySelected('${match.id}','${myId}')">Gioca ${joputaSel.size>1?joputaSel.size+'× '+joputaKeyLabel(joputaKey(c)):esc(c?scala40CardLabel(c):'')}</button>`);
+  }
+  if(isMyTurn && !legal && match.pile.length){
+    btns.push(`<button class="btn-danger" onclick="joputaPickUp('${match.id}','${myId}')">Raccogli la pila (${match.pile.length})</button>`);
+  }
+  const help = !isMyTurn ? '' : canDown
+    ? `<p class="hint" style="color:#D4AF6A;">Tocca una carta coperta: la giri alla cieca. Se non va, raccogli la pila.</p>`
+    : !legal ? `<p class="hint" style="color:#D4AF6A;">Nessuna carta valida: devi raccogliere la pila.</p>`
+    : !joputaSel.size ? `<p class="hint">Tocca la carta da giocare (o più carte dello stesso valore), poi "Gioca".</p>` : '';
+  const actionsHtml = help + (btns.length ? `<div class="row-btns" style="flex-wrap:wrap;margin:10px 0;">${btns.join('')}</div>` : '');
+  const finishedRow = match.finished.length ? `<p class="hint">Hanno finito: ${match.finished.map((id,i)=>(i+1)+'. '+esc(nameOf(match,id))).join(' · ')}</p>` : '';
+  return `
+    <div class="card">
+      ${header}
+      ${turnBar}
+      ${actionBanner}
+      ${errorBanner}
+      ${tableSvg}
+      ${finishedRow}
+      ${myId ? `<h2>${revealAll?'Carte di '+esc(nameOf(match,myId)):'La tua mano'}</h2>
+      ${handHtml}
+      ${actionsHtml}
+      <h2>${revealAll?'Sul tavolo':'Le tue carte sul tavolo'}</h2>
+      ${slotsHtml({
+        upSelected:(k,u)=> u && joputaSelSource==='up' && joputaSel.has(u.id),
+        upClick: canUp ? (k,u)=>`joputaToggle('up','${u.id}')` : null,
+        downClick: canDown ? (k)=>`joputaPlayBlind('${match.id}','${myId}',${k})` : null
+      })}` : ''}
+    </div>`;
+}
+
+function renderJoputaEnd(match, myId){
+  const loser = match._loserId;
+  maybeShowLoserPopup(match.id, 'joputa-end', myId, [loser]);
+  const rows = match.finished.map((id,i)=>`<div class="rank-row win"><span>${i+1}. ${esc(nameOf(match,id))}${(match.players.find(p=>p.id===id)||{}).isBot?' 🤖':''}</span><span>✅ salvo</span></div>`).join('')
+    + (loser ? `<div class="rank-row"><span>${esc(nameOf(match,loser))}${(match.players.find(p=>p.id===loser)||{}).isBot?' 🤖':''}</span><span>😱 è il Joputa</span></div>` : '');
+  return `
+    <div class="card">
+      <h2>Partita di Joputa finita</h2>
+      <p class="hint">😱 <b>${esc(nameOf(match,loser))}</b> è rimasto con le carte: è il Joputa!</p>
       ${rows}
       <button class="btn-primary" style="margin-top:14px;" onclick="backToLobbyFromEnd()">Torna alla lobby</button>
     </div>`;
@@ -11632,7 +12294,7 @@ function renderHistory(history){
     const isOpen = openHistoryId === h.id;
     const scopa = h.game==='scopa';
     const briscola = h.game==='briscola';
-    const vecia = h.game==='vecia';
+    const vecia = h.game==='vecia' || h.game==='joputa';
     const cavacamisa = h.game==='cavacamisa';
     const uno = h.game==='uno';
     const scala40 = h.game==='scala40';
@@ -11644,13 +12306,13 @@ function renderHistory(history){
     const roulette = h.game==='roulette';
     const blackjack = h.game==='blackjack';
     const risiko = h.game==='risiko';
-    const gameLabel = scopa ? 'Scopa' : (briscola ? 'Briscola' : (vecia ? 'Vecia' : (cavacamisa ? 'Cava Camisa' : (uno ? 'UNO' : (scala40 ? 'Scala 40' : (poker ? 'Poker' : (forza4 ? 'Forza 4' : (battaglianavale ? 'Battaglia Navale' : (dama ? 'Dama' : (scacchi ? 'Scacchi' : (roulette ? 'Roulette' : (blackjack ? 'Black Jack' : (risiko ? 'Risiko' : 'Bisca')))))))))))));
+    const gameLabel = scopa ? 'Scopa' : (briscola ? 'Briscola' : (h.game==='joputa' ? 'Joputa' : vecia ? 'Vecia' : (cavacamisa ? 'Cava Camisa' : (uno ? 'UNO' : (scala40 ? 'Scala 40' : (poker ? 'Poker' : (forza4 ? 'Forza 4' : (battaglianavale ? 'Battaglia Navale' : (dama ? 'Dama' : (scacchi ? 'Scacchi' : (roulette ? 'Roulette' : (blackjack ? 'Black Jack' : (risiko ? 'Risiko' : 'Bisca')))))))))))));
     const detail = isOpen ? `
       <div class="history-detail">
         ${h.players.map(p=>`
           <div class="rank-row ${vecia ? (p.isLoser?'':'win') : (p.rank===1?'win':'')}">
-            <span>${vecia ? '' : p.rank+'. '}${esc(p.name)}${p.isBot?' 🤖':''}</span>
-            <span>${scopa ? p.punti+' punti' : (briscola||cavacamisa||uno||forza4) ? p.maniVinte+' man'+(p.maniVinte===1?'o':'i')+' vinte' : (scala40 && h.mode==='ramino') ? p.punti+' punti di penalita\'' : scala40 ? p.maniVinte+' man'+(p.maniVinte===1?'o':'i')+' vinte' : poker ? p.chips+' fiches' : vecia ? (p.isLoser?'😱 è la Vecia':'✅ salvo') : battaglianavale ? (p.rank===1?'🏆 vincitore':'flotta affondata') : dama ? (p.rank===1?'🏆 vincitore':'sconfitto') : risiko ? (p.rank===1?'🏆 vincitore':'sconfitto') : scacchi ? (h.isDraw?'🤝 pareggio':(p.rank===1?'🏆 vincitore':'scacco matto subito')) : (roulette||blackjack) ? p.chips+' fiches'+(p.rank===1?' 🏆':'') : (p.rank===1?'vincitore':'eliminato mano '+p.eliminatedAtRound)}</span>
+            <span>${vecia ? (p.rank ? p.rank+'. ' : '') : p.rank+'. '}${esc(p.name)}${p.isBot?' 🤖':''}</span>
+            <span>${scopa ? p.punti+' punti' : (briscola||cavacamisa||uno||forza4) ? p.maniVinte+' man'+(p.maniVinte===1?'o':'i')+' vinte' : (scala40 && h.mode==='ramino') ? p.punti+' punti di penalita\'' : scala40 ? p.maniVinte+' man'+(p.maniVinte===1?'o':'i')+' vinte' : poker ? p.chips+' fiches' : vecia ? (p.isLoser?(h.game==='joputa'?'😱 è il Joputa':'😱 è la Vecia'):'✅ salvo') : battaglianavale ? (p.rank===1?'🏆 vincitore':'flotta affondata') : dama ? (p.rank===1?'🏆 vincitore':'sconfitto') : risiko ? (p.rank===1?'🏆 vincitore':'sconfitto') : scacchi ? (h.isDraw?'🤝 pareggio':(p.rank===1?'🏆 vincitore':'scacco matto subito')) : (roulette||blackjack) ? p.chips+' fiches'+(p.rank===1?' 🏆':'') : (p.rank===1?'vincitore':'eliminato mano '+p.eliminatedAtRound)}</span>
           </div>`).join('')}
         <div style="font-size:12px;color:var(--cream-dim);margin-top:6px;">${
           scopa ? 'formato '+(h.format||'1v1')+' · a '+(h.target||11)+' punti · '+h.rounds+' man'+(h.rounds===1?'o':'i')+' giocate'
@@ -11675,7 +12337,7 @@ function renderHistory(history){
           <span>${new Date(h.date).toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'})} · <span class="game-tag">${gameLabel}</span> · ${h.solo?'Singolo 🤖':'Con amici'}</span>
           <span>${h.players.length} giocatori</span>
         </div>
-        <div class="h-winner">${vecia ? '😱 '+esc(h.loser)+' è la Vecia' : (h.winner ? '🏆 '+esc(h.winner) : 'Nessun vincitore netto')}</div>
+        <div class="h-winner">${vecia ? '😱 '+esc(h.loser)+(h.game==='joputa'?' è il Joputa':' è la Vecia') : (h.winner ? '🏆 '+esc(h.winner) : 'Nessun vincitore netto')}</div>
         ${detail}
       </div>`;
   }).join('');
