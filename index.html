@@ -2745,7 +2745,7 @@ function scala40OptionsPanel(){
       <div class="row-btns" style="margin-top:8px;">${modeBtns}</div>
       <span style="font-size:14px;display:block;margin-top:10px;">${scala40Mode==='secche' ? 'Si vince arrivando a:' : 'La partita finisce quando qualcuno raggiunge:'}</span>
       <div class="row-btns" style="margin-top:8px;flex-wrap:wrap;">${subOpts}</div>
-      <p class="hint" style="margin:8px 0 0;">Da 2 a ${SCALA40_MAX_PLAYERS} giocatori, 13 carte a testa, mazzo doppio da 108 carte con 4 jolly. Servono almeno 40 punti per la prima calata (anche sommando piu' combinazioni insieme); dopo esserti aperto puoi calare ed aggiungere carte alle combinazioni sul tavolo liberamente. ${scala40Mode==='ramino' ? 'Vince chi ha meno punti di penalita\' quando qualcuno supera la soglia.' : 'Ogni mano vinta vale un punto partita.'}</p>
+      <p class="hint" style="margin:8px 0 0;">Da 2 a ${SCALA40_MAX_PLAYERS} giocatori, 13 carte a testa, mazzo doppio da 108 carte con 4 jolly. Servono almeno 40 punti per la prima calata (anche sommando piu' combinazioni insieme); finche' non sei aperto puoi prendere dagli scarti solo se in quel turno cali i 40 punti, altrimenti rimetti la carta e peschi dal mazzo; dopo esserti aperto puoi calare ed aggiungere carte alle combinazioni sul tavolo liberamente. ${scala40Mode==='ramino' ? 'Vince chi ha meno punti di penalita\' quando qualcuno supera la soglia.' : 'Ogni mano vinta vale un punto partita.'}</p>
     </div>`;
 }
 function renderScala40OptionsInline(){
@@ -6830,6 +6830,7 @@ function dealScala40Hand(match){
   match.currentId = ids[leaderIdx];
   match.turnStep = 'draw';
   match.lastAction = null;
+  match.discardPickup = null;
 }
 
 function buildScala40Match(id, names, mode, target){
@@ -6867,6 +6868,40 @@ async function scala40Draw(matchId, playerId, from){
   match.hands[playerId] = scala40SortHand(match.hands[playerId]);
   match.turnStep = 'act';
   match.lastAction = {type:'draw', playerId, from};
+  // Regola: chi non si e' ancora aperto puo' prendere dagli scarti solo se in
+  // questo stesso turno cala almeno 40 punti (non serve usare proprio quella
+  // carta). Finche' non apre non puo' scartare: o cala, o rimette la carta e
+  // pesca dal mazzo (scala40ReturnPickup).
+  match.discardPickup = (from==='discard' && !match.opened[playerId]) ? { playerId, cardId: card.id } : null;
+  await setActiveMatch(match);
+  await render();
+}
+
+function scala40PickupPending(match, playerId){
+  const pk = match.discardPickup;
+  return !!(pk && pk.playerId===playerId && !match.opened[playerId]);
+}
+// Ripensamento dopo aver preso dagli scarti senza riuscire (o volere) aprire:
+// la carta torna in cima agli scarti e si pesca dal mazzo coperto al suo posto.
+async function scala40ReturnPickup(matchId, playerId){
+  const match = await getActiveMatch();
+  if(!match || match.id!==matchId || match.phase!=='playing' || match.currentId!==playerId || match.turnStep!=='act') return;
+  if(!scala40PickupPending(match, playerId)) return;
+  const hand = match.hands[playerId];
+  const idx = hand.findIndex(c=>c.id===match.discardPickup.cardId);
+  if(idx<0) return;
+  const card = hand.splice(idx,1)[0];
+  match.discardPile.push(card);
+  if(!match.drawPile.length){
+    if(match.discardPile.length<=1){ hand.push(match.discardPile.pop()); match.discardPickup = null; await setActiveMatch(match); await render(); return; }
+    const top = match.discardPile.pop();
+    match.drawPile = shuffle(match.discardPile);
+    match.discardPile = [top];
+  }
+  hand.push(match.drawPile.pop());
+  match.hands[playerId] = scala40SortHand(hand);
+  match.discardPickup = null;
+  match.lastAction = {type:'returnPickup', playerId, card};
   await setActiveMatch(match);
   await render();
 }
@@ -6925,6 +6960,7 @@ async function scala40Meld(matchId, playerId, groups){
     match.melds.push({id:'m'+Math.random().toString(36).slice(2), ownerId:playerId, cards: scala40SortMeldCards(cards)});
   });
   match.opened[playerId] = true;
+  match.discardPickup = null;
   match.lastAction = {type:'meld', playerId, groups: groups.length};
   if(hand.length===0){
     scala40FinishHand(match, playerId, !wasOpenBefore);
@@ -6986,12 +7022,14 @@ async function scala40Attach(matchId, playerId, meldId, cardIds){
 async function scala40Discard(matchId, playerId, cardId){
   const match = await getActiveMatch();
   if(!match || match.id!==matchId || match.phase!=='playing' || match.currentId!==playerId || match.turnStep!=='act') return;
+  if(scala40PickupPending(match, playerId)) return {ok:false, reason:'Hai preso dagli scarti: per scartare devi prima calare almeno '+SCALA40_OPEN_THRESHOLD+' punti, oppure rimettere la carta e pescare dal mazzo.'};
   const hand = match.hands[playerId];
   const idx = hand.findIndex(c=>c.id===cardId);
   if(idx<0) return;
   const wasOpenBefore = match.opened[playerId];
   const card = hand.splice(idx,1)[0];
   match.discardPile.push(card);
+  match.discardPickup = null;
   match.lastAction = {type:'discard', playerId, card};
   if(hand.length===0){
     scala40FinishHand(match, playerId, !wasOpenBefore);
@@ -7160,6 +7198,8 @@ async function scheduleScala40BotMove(match){
         const testHand = cur.hands[pid].concat([topDiscard]);
         const gruppiConScarto = scala40TrovaGruppi(testHand);
         if(gruppiConScarto.some(g=>g.includes(topDiscard.id))) preferisceScarti = true;
+        // non ancora aperto: dagli scarti solo se poi arriva davvero ai 40 punti
+        if(preferisceScarti && !cur.opened[pid] && !scala40BotSceltaCalata(testHand, false).length) preferisceScarti = false;
       }
       await scala40Draw(cur.id, pid, preferisceScarti ? 'discard' : 'pile');
       return;
@@ -7172,6 +7212,11 @@ async function scheduleScala40BotMove(match){
     if(!cur || cur.phase!=='playing') return;
     if(cur.opened[pid]) cur = await scala40BotProvaAttacchi(cur, pid);
     if(!cur || cur.phase!=='playing') return;
+    if(scala40PickupPending(cur, pid)){
+      await scala40ReturnPickup(cur.id, pid);
+      cur = await getActiveMatch();
+      if(!cur || cur.phase!=='playing') return;
+    }
     const handOra = cur.hands[pid];
     if(handOra.length===0) return;
     const scarto = scala40BotSceltaScarto(handOra);
@@ -11715,8 +11760,9 @@ async function scala40TryDiscard(matchId, playerId){
     return;
   }
   const cardId = [...scala40Selected][0];
+  const res = await scala40Discard(matchId, playerId, cardId);
+  if(res && res.ok===false){ scala40ErrorMsg = res.reason; render(true); return; }
   scala40Selected = new Set();
-  await scala40Discard(matchId, playerId, cardId);
 }
 
 function scala40TableSVG(match, myId){
@@ -11838,6 +11884,7 @@ function renderScala40Match(match, claim){
     if(a.type==='attach') return `${esc(nameOf(match,a.playerId))} aggiunge una carta a una combinazione`;
     if(a.type==='jokerSwap') return `${esc(nameOf(match,a.playerId))} sostituisce un jolly con la carta vera e lo riprende in mano`;
     if(a.type==='discard') return `${esc(nameOf(match,a.playerId))} scarta ${esc(scala40CardLabel(a.card))}`;
+    if(a.type==='returnPickup') return `${esc(nameOf(match,a.playerId))} non apre: rimette ${esc(scala40CardLabel(a.card))} negli scarti e pesca dal mazzo`;
     return '';
   })() : '';
   const actionBanner = actionText ? `<div class="turn-banner">${actionText}</div>` : '';
@@ -11922,10 +11969,18 @@ function renderScala40Match(match, claim){
     if(scala40Staged.length || (selValidMeld && !scala40Staged.length)){
       btns.push(`<button class="btn-primary" onclick="scala40ConfirmMeld('${match.id}','${myId}')">Cala ${scala40Staged.length||1} combinazion${(scala40Staged.length||1)===1?'e':'i'}</button>`);
     }
-    if(selCount===1 && !scala40Staged.length){
+    const pickupPending = scala40PickupPending(match, myId);
+    if(selCount===1 && !scala40Staged.length && !pickupPending){
       btns.push(`<button class="btn-danger" onclick="scala40TryDiscard('${match.id}','${myId}')">Scarta questa carta</button>`);
     }
-    if(btns.length) actionButtons = `<div class="row-btns" style="flex-wrap:wrap;margin:10px 0;">${btns.join('')}</div>`;
+    if(pickupPending){
+      btns.push(`<button class="btn-secondary" onclick="scala40ReturnPickup('${match.id}','${myId}')">Rimetti la carta e pesca dal mazzo</button>`);
+    }
+    const pickupCard = pickupPending ? myHand.find(c=>c.id===match.discardPickup.cardId) : null;
+    const pickupHint = pickupPending
+      ? `<p class="hint" style="color:#D4AF6A;">Hai preso ${pickupCard?esc(scala40CardLabel(pickupCard)):'una carta'} dagli scarti senza essere ancora aperto: per tenerla devi calare almeno ${SCALA40_OPEN_THRESHOLD} punti in questo turno. Altrimenti rimettila e pesca dal mazzo.</p>`
+      : '';
+    if(btns.length) actionButtons = pickupHint + `<div class="row-btns" style="flex-wrap:wrap;margin:10px 0;">${btns.join('')}</div>`;
     else if(!selCount) actionButtons = `<p class="hint">Tocca una o piu' carte della tua mano per formare una combinazione, oppure una sola carta per scartarla o aggiungerla a una combinazione sul tavolo.</p>`;
   }
 
