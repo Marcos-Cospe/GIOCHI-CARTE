@@ -254,6 +254,9 @@ body.force-share.in-match #sync-panel{display:block !important;}
 .table-hand .hand-card{flex:0 0 auto;filter:drop-shadow(0 3px 5px rgba(0,0,0,.45));}
 .table-hand p.hint{margin:0;pointer-events:none;}
 .cava-stack{position:relative;padding:0;}
+/* carta appena pescata: azzurro, diverso dall'oro delle carte giocabili/selezionate */
+@keyframes justDrawnPulse{0%,100%{outline-color:#4FC3F7;filter:drop-shadow(0 0 6px rgba(79,195,247,.85));}50%{outline-color:#B3E5FC;filter:drop-shadow(0 0 12px rgba(79,195,247,1));}}
+.hand-card.just-drawn{outline:3px solid #4FC3F7;outline-offset:1px;border-radius:7px;animation:justDrawnPulse 1s ease-in-out infinite;position:relative;top:-12px;z-index:50 !important;transition:top .2s;}
 .cava-stack-n{position:absolute;right:4px;bottom:4px;z-index:3;min-width:22px;height:22px;border-radius:11px;background:#16261F;border:1px solid #D4AF6A;color:#D4AF6A;font:700 12px/20px 'IBM Plex Mono',monospace;text-align:center;}
 /* Distribuzione manuale (mdeal): la partita e' ferma, si tocca solo il tavolo */
 #app.mdeal-on [onclick]:not([data-mdeal]){pointer-events:none;}
@@ -1312,6 +1315,20 @@ function cardMotionModelBase(match, owners, fromHands, italian, poker){
   }
 }
 let cardMotionPrev = null;
+const drawnHighlightUntil = {};
+// Dopo ogni ridisegno (che ricrea le carte da zero) rimette l'evidenziazione
+// sulle carte pescate da meno di 3 secondi e la toglie allo scadere.
+function applyDrawnHighlight(){
+  const now = performance.now();
+  Object.keys(drawnHighlightUntil).forEach(id=>{
+    const left = drawnHighlightUntil[id] - now;
+    if(left<=0){ delete drawnHighlightUntil[id]; return; }
+    const el = document.querySelector('#app .my-hand-src [data-card="'+id+'"]') || document.querySelector('#app .hand [data-card="'+id+'"], #app .hand-grid6 [data-card="'+id+'"]');
+    if(!el) return;
+    el.classList.add('just-drawn');
+    setTimeout(()=>{ el.classList.remove('just-drawn'); }, left);
+  });
+}
 let cardMotionSoundAt = 0;
 function cardMotionTableRect(){
   const t = document.querySelector('#app .table-wrap, #app .bj-table-svg-wrap');
@@ -1361,6 +1378,15 @@ function activateCardMotion(match, claim){
   // subito la stessa carta — e la carta pescata finirebbe per volare scoperta
   // verso gli scarti invece che coperta verso chi l'ha pescata.
   moves.forEach(mv=>{ mv.toCard = !!document.querySelector('#app [data-card="'+mv.id+'"]'); });
+  // carte che hai appena pescato (dal mazzo, dagli scarti, dalla mano del
+  // vicino in Vecia): restano evidenziate per 3 secondi da quando atterrano.
+  // Non in distribuzione (sarebbero tutte), non quando raccogli la pila.
+  if(myId && !model.dealFrom){
+    const until = performance.now() + 3000 + 450;
+    moves.forEach(mv=>{
+      if(mv.to===myId && (mv.from===null || (match.players||[]).some(p=>p.id===mv.from))) drawnHighlightUntil[mv.id] = until;
+    });
+  }
   // Oltre una dozzina (es. chi si prende un mazzetto enorme a Cava Camisa)
   // le carte in volo si accavallano senza aggiungere nulla.
   moves.slice(0, 12).forEach((mv,i)=> setTimeout(()=> cardMotionFly(mv, model, prev.pileTopId, myId), i*90));
@@ -3207,6 +3233,7 @@ async function render(force){
     preloadDeckImages(match.game);
     activateTableHand(match, claim);
     activateCardMotion(match, claim);
+    applyDrawnHighlight();
     activateManualDeal(match, claim || (match.game ? {type:'all'} : null));
     scheduleBotMove();
     return;
@@ -5202,8 +5229,8 @@ function renderScopaMatch(match, claim){
     ownerHand.map(c=>{
       const clickable = isMyTurn && !match.pendingCapture;
       return clickable
-        ? `<button class="hand-card ${SUIT_CLASS[c.suit]}" title="${cardLabel(c)}" onclick="playScopaCard('${match.id}','${handOwner}','${c.id}')">${cardFrontSVG(c)}</button>`
-        : `<span class="hand-card ${SUIT_CLASS[c.suit]} waiting" title="${cardLabel(c)}">${cardFrontSVG(c)}</span>`;
+        ? `<button data-card="${c.id}" class="hand-card ${SUIT_CLASS[c.suit]}" title="${cardLabel(c)}" onclick="playScopaCard('${match.id}','${handOwner}','${c.id}')">${cardFrontSVG(c)}</button>`
+        : `<span data-card="${c.id}" class="hand-card ${SUIT_CLASS[c.suit]} waiting" title="${cardLabel(c)}">${cardFrontSVG(c)}</span>`;
     }).join('')
   }</div>` : `<p class="hint" style="margin:6px 0 0;">Mano vuota, aspetta il prossimo giro di carte.</p>`;
 
@@ -5779,8 +5806,8 @@ function renderBriscolaMatch(match, claim){
   const puoGiocare = !resolved && displayOwner===turnId && (revealAll || displayOwner===myId);
   const handHtml = hand.length ? `<div class="hand">${hand.map(c=>
       puoGiocare
-        ? `<button class="hand-card ${SUIT_CLASS[c.suit]}" title="${cardLabel(c)}" onclick="playBriscolaCard('${match.id}','${displayOwner}','${c.id}')">${cardFrontSVG(c)}</button>`
-        : `<span class="hand-card ${SUIT_CLASS[c.suit]} waiting" title="${cardLabel(c)}">${cardFrontSVG(c)}</span>`
+        ? `<button data-card="${c.id}" class="hand-card ${SUIT_CLASS[c.suit]}" title="${cardLabel(c)}" onclick="playBriscolaCard('${match.id}','${displayOwner}','${c.id}')">${cardFrontSVG(c)}</button>`
+        : `<span data-card="${c.id}" class="hand-card ${SUIT_CLASS[c.suit]} waiting" title="${cardLabel(c)}">${cardFrontSVG(c)}</span>`
     ).join('')}</div>` : `<p class="hint" style="margin:6px 0 0;">Mano vuota.</p>`;
 
   return `
@@ -6123,7 +6150,7 @@ function renderVeciaMatch(match, claim){
     ? `<div class="hand">${hand.map(c=>{
         const isMatched = matchedRank && c.rank===matchedRank;
         const style = isMatched ? 'box-shadow:0 0 0 3px #D4AF6A;border-radius:8px;transform:translateY(-4px);transition:transform .15s;' : '';
-        return `<span class="hand-card ${SUIT_CLASS[c.suit]} waiting" style="${style}" title="${cardLabel(c)}">${cardFrontSVG(c)}</span>`;
+        return `<span data-card="${c.id}" class="hand-card ${SUIT_CLASS[c.suit]} waiting" style="${style}" title="${cardLabel(c)}">${cardFrontSVG(c)}</span>`;
       }).join('')}</div>`
     : `<p class="hint" style="margin:6px 0 0;">Mano vuota — sei salvo! 🎉</p>`;
 
@@ -12009,7 +12036,7 @@ function renderUnoHand(match, myId){
     const style = playable
       ? 'cursor:pointer;box-shadow:0 0 0 2px #D4AF6A;'
       : 'cursor:default;'; // e' la TUA mano: resta a piena luminosita' anche quando questa carta non e' giocabile ora
-    return `<div class="hand-card" style="${style}border-radius:6px;" ${onclick?`onclick="${onclick}"`:''}>${unoCardSVG(c, 44, 62)}</div>`;
+    return `<div data-card="${c.id}" class="hand-card" style="${style}border-radius:6px;" ${onclick?`onclick="${onclick}"`:''}>${unoCardSVG(c, 44, 62)}</div>`;
   }).join('');
   return `<div class="hand-grid6" style="margin-top:10px;">${cards}</div>`;
 }
@@ -12355,9 +12382,9 @@ function renderHandsBlock(match, cards, revealAll, myId, opts){
       cardsHtml = `<div class="hand ${isMe && !revealAll ? 'my-hand-src' : ''}">${sorted.map(c=>
         clickable
           ? (isAssoDenari(c)
-              ? `<button class="hand-card ${SUIT_CLASS[c.suit]}" title="${cardLabel(c)}" onclick="chooseAceValue('${match.id}','${pid}','${c.id}')">${cardFrontSVG(c)}</button>`
-              : `<button class="hand-card ${SUIT_CLASS[c.suit]}" title="${cardLabel(c)}" onclick="playCard('${match.id}','${pid}','${c.id}')">${cardFrontSVG(c)}</button>`)
-          : `<span class="hand-card ${SUIT_CLASS[c.suit]} ${isMe?'waiting':'disabled'}" title="${cardLabel(c)}">${cardFrontSVG(c)}</span>`
+              ? `<button data-card="${c.id}" class="hand-card ${SUIT_CLASS[c.suit]}" title="${cardLabel(c)}" onclick="chooseAceValue('${match.id}','${pid}','${c.id}')">${cardFrontSVG(c)}</button>`
+              : `<button data-card="${c.id}" class="hand-card ${SUIT_CLASS[c.suit]}" title="${cardLabel(c)}" onclick="playCard('${match.id}','${pid}','${c.id}')">${cardFrontSVG(c)}</button>`)
+          : `<span data-card="${c.id}" class="hand-card ${SUIT_CLASS[c.suit]} ${isMe?'waiting':'disabled'}" title="${cardLabel(c)}">${cardFrontSVG(c)}</span>`
       ).join('')}</div>`;
     }
 
@@ -12815,7 +12842,7 @@ function renderScala40Match(match, claim){
   const handHtml = sortedHand.length ? `<div class="hand-grid6">${sortedHand.map(c=>{
     const sel = scala40Selected.has(c.id);
     const href = scala40ImageHref(c);
-    return `<span class="hand-card ${canAct?'':'waiting'}" style="${sel?'box-shadow:0 0 0 3px #D4AF6A;border-radius:8px;transform:translateY(-6px);':''}transition:transform .12s;" onclick="${canAct?`scala40ToggleCard('${c.id}')`:''}" title="${esc(scala40CardLabel(c))}">
+    return `<span data-card="${c.id}" class="hand-card ${canAct?'':'waiting'}" style="${sel?'box-shadow:0 0 0 3px #D4AF6A;border-radius:8px;transform:translateY(-6px);':''}transition:transform .12s;" onclick="${canAct?`scala40ToggleCard('${c.id}')`:''}" title="${esc(scala40CardLabel(c))}">
       <img src="${href}" style="width:52px;height:74px;object-fit:contain;" onerror="this.style.opacity=0.15"/>
     </span>`;
   }).join('')}</div>` : `<p class="hint">Mano vuota — hai chiuso! 🎉</p>`;
