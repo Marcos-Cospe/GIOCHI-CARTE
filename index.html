@@ -1202,13 +1202,24 @@ const UNO_BACK_IMG = 'data:image/svg+xml;utf8,'+encodeURIComponent(
   '<ellipse cx="30" cy="42" rx="21" ry="30" fill="#D5262C" transform="rotate(-18 30 42)"/>'+
   '<text x="30" y="48" text-anchor="middle" font-family="Georgia,serif" font-size="15" font-weight="800" fill="#F4B400" transform="rotate(-18 30 42)">UNO</text></svg>');
 
-// Iconcina "carte in mano" accanto all'avatar di ogni posto: e' il dorso
-// VERO del mazzo di quel gioco (regionale, Uno, francese), non un motivo
-// generico uguale per tutti.
-function seatBackSVG(x, y, fs, href, stroke, sw){
-  const w = 18*fs, h = 26*fs;
-  return `<image href="${href}" x="${x-w/2}" y="${y-h/2}" width="${w}" height="${h}" preserveAspectRatio="none"/>`+
-    `<rect x="${x-w/2}" y="${y-h/2}" width="${w}" height="${h}" rx="3" fill="none" stroke="${stroke||'#8C7647'}" stroke-width="${sw||1}"/>`;
+// Ventaglio delle carte in mano a un giocatore, viste dal retro (dorso vero
+// del mazzo del gioco), dentro il cerchio del suo posto: fino a 9 dorsi
+// aperti a ventaglio, il numero esatto resta nel pallino accanto.
+function seatFanSVG(x, y, fs, href, count, stroke, sw){
+  const shown = Math.min(Math.max(count|0, 0), 9);
+  if(!shown) return '';
+  const w = 13*fs, h = 19*fs;
+  const px = x, py = y + 22*fs;          // perno del ventaglio, sotto le carte
+  const cxC = x, cyC = y - 2*fs;         // centro della carta prima della rotazione
+  const spread = shown<=1 ? 0 : Math.min(76, 13*(shown-1));
+  let out = '';
+  for(let i=0;i<shown;i++){
+    const a = shown<=1 ? 0 : -spread/2 + i*spread/(shown-1);
+    out += `<g transform="rotate(${a.toFixed(1)} ${px} ${py})">`+
+      `<image href="${href}" x="${cxC-w/2}" y="${cyC-h/2}" width="${w}" height="${h}" preserveAspectRatio="none"/>`+
+      `<rect x="${cxC-w/2}" y="${cyC-h/2}" width="${w}" height="${h}" rx="${1.6*fs}" fill="none" stroke="${stroke||'#8C7647'}" stroke-width="${sw||0.7}"/></g>`;
+  }
+  return `<g class="seat-fan" pointer-events="none">${out}</g>`;
 }
 function cardMotionModel(match){
   if(!match) return null;
@@ -4775,7 +4786,7 @@ function renderTableSVG(match, cards, revealAll, myId){
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         ${dealableHere?`<circle cx="${x}" cy="${y}" r="${avatarR+9}" fill="none" stroke="#D4AF6A" stroke-width="1.4" stroke-dasharray="3,3"><animateTransform attributeName="transform" type="rotate" from="0 ${x} ${y}" to="360 ${x} ${y}" dur="6s" repeatCount="indefinite"/></circle>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':'#3C5A4C')}" stroke-width="${isTurn?2.4:1.8}"/>
-        ${seatBackSVG(x, y, fs, CARD_IMG['back'])}
+        ${seatFanSVG(x, y, fs, CARD_IMG['back'], cardsLeft)}
         <circle cx="${x+9*fs}" cy="${y+10*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+9*fs}" y="${y+13.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>
         ${livesDotsSvg}
@@ -4912,7 +4923,7 @@ function renderScopaTableSVG(match, myId){
       <g data-seat="${pid}">
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':(teamTint||'#3C5A4C'))}" stroke-width="${isTurn?2.4:(teamTint?2.2:1.8)}"/>
-        ${seatBackSVG(x, y, fs, CARD_IMG['back'])}
+        ${seatFanSVG(x, y, fs, CARD_IMG['back'], cardsLeft)}
         <circle cx="${x+9*fs}" cy="${y+10*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+9*fs}" y="${y+13.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>
         ${statSvg}
@@ -5518,7 +5529,7 @@ function renderBriscolaTableSVG(match, myId){
       <g data-seat="${pid}">
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':(teamTint||'#3C5A4C'))}" stroke-width="${isTurn?2.4:(teamTint?2.2:1.8)}"/>
-        ${seatBackSVG(x, y, fs, CARD_IMG['back'])}
+        ${seatFanSVG(x, y, fs, CARD_IMG['back'], cardsLeft)}
         <circle cx="${x+9*fs}" cy="${y+10*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+9*fs}" y="${y+13.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>
         ${statSvg}
@@ -5901,7 +5912,7 @@ function renderVeciaTableSVG(match, myId){
     const handSvg = isSafe
       ? `<text x="${x}" y="${y+5*fs}" text-anchor="middle" font-size="${15*fs}">✅</text>`
       : `
-        ${seatBackSVG(x, y, fs, CARD_IMG['back'])}
+        ${seatFanSVG(x, y, fs, CARD_IMG['back'], cardsLeft)}
         <circle cx="${x+9*fs}" cy="${y+10*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+9*fs}" y="${y+13.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>`;
 
@@ -6450,7 +6461,7 @@ function joputaTableSVG(match, myId){
       <g data-seat="${pid}">
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':'#3C5A4C')}" stroke-width="${isTurn?2.4:1.8}" opacity="${done?0.5:1}"/>
-        ${done ? `<text x="${x}" y="${y+5*fs}" text-anchor="middle" font-size="${15*fs}">✅</text>` : `${seatBackSVG(x, y, fs, POKER_BACK_IMG)}
+        ${done ? `<text x="${x}" y="${y+5*fs}" text-anchor="middle" font-size="${15*fs}">✅</text>` : `${seatFanSVG(x, y, fs, POKER_BACK_IMG, inHand)}
         <circle cx="${x+9*fs}" cy="${y+10*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+9*fs}" y="${y+13.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${inHand}</text>`}
         <rect x="${lx-pillW/2}" y="${nameY-11*fs}" width="${pillW}" height="${19*fs}" rx="${9.5*fs}" fill="rgba(10,20,16,0.92)" stroke="${isTurn?'#D4AF6A':'#3C5A4C'}" stroke-width="1"/>
@@ -6875,7 +6886,7 @@ function renderCavaCamisaTableSVG(match, myId){
     const handSvg = isSafe
       ? `<text x="${x}" y="${y+5*fs}" text-anchor="middle" font-size="${15*fs}">💀</text>`
       : `
-        ${seatBackSVG(x, y, fs, CARD_IMG['back'], isThrower?'#D4AF6A':'#8C7647', isThrower?2:1)}
+        ${seatFanSVG(x, y, fs, CARD_IMG['back'], cardsLeft, isThrower?'#D4AF6A':'#8C7647', isThrower?1.4:0.7)}
         <circle cx="${x+9*fs}" cy="${y+10*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+9*fs}" y="${y+13.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>`;
 
@@ -11788,7 +11799,7 @@ function unoTableSVG(match, myId){
       <g data-seat="${pid}">
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':'#3C5A4C')}" stroke-width="${isTurn?2.4:1.8}"/>
-        ${seatBackSVG(x, y, fs, UNO_BACK_IMG, isUnoRisk?'#D5262C':'#8C7647', isUnoRisk?2:1)}
+        ${seatFanSVG(x, y, fs, UNO_BACK_IMG, cardsLeft, isUnoRisk?'#D5262C':'#8C7647', isUnoRisk?1.4:0.7)}
         <circle cx="${x+9*fs}" cy="${y+10*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+9*fs}" y="${y+13.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>
         <rect x="${lx-pillW/2}" y="${ly-11*fs}" width="${pillW}" height="${19*fs}" rx="${9.5*fs}" fill="rgba(10,20,16,0.92)" stroke="${isTurn?'#D4AF6A':'#3C5A4C'}" stroke-width="1"/>
@@ -12531,8 +12542,9 @@ function scala40TableSVG(match, myId){
       <g data-seat="${pid}">
         ${isTurn?`<circle cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':'#3C5A4C')}" stroke-width="${isTurn?2.4:1.8}"/>
-        <circle cx="${x}" cy="${y}" r="${9*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
-        <text x="${x}" y="${y+3.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>
+        ${seatFanSVG(x, y, fs, POKER_BACK_IMG, cardsLeft)}
+        <circle cx="${x+9*fs}" cy="${y+10*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
+        <text x="${x+9*fs}" y="${y+13.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>
         <rect x="${lx-pillW/2}" y="${ly-11*fs}" width="${pillW}" height="${19*fs}" rx="${9.5*fs}" fill="rgba(10,20,16,0.92)" stroke="${isTurn?'#D4AF6A':'#3C5A4C'}" stroke-width="1"/>
         <text x="${lx}" y="${ly+3*fs}" text-anchor="middle" font-family="'Fraunces',serif" font-size="${12.5*fs}" font-weight="700" fill="${isTurn?'#D4AF6A':'#F1ECE1'}">${label}</text>
       </g>`;
@@ -12819,7 +12831,8 @@ function pokerTableSVG(match, myId){
       <g data-seat="${pid}" style="${dim?'opacity:0.4;':''}">
         ${isTurn?`<circle cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':'#3C5A4C')}" stroke-width="${isTurn?2.4:1.8}"/>
-        <text x="${x}" y="${y+3.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${8.5*fs}" font-weight="700" fill="#D4AF6A">${player.chips}</text>
+        ${(!isFolded && !player.eliminated) ? seatFanSVG(x, y-3*fs, fs*0.9, POKER_BACK_IMG, ((match.hands||{})[pid]||[]).length) : ''}
+        <text x="${x}" y="${y+(((match.hands||{})[pid]||[]).length && !isFolded ? 16 : 3.5)*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${8.5*fs}" font-weight="700" fill="#D4AF6A" stroke="#16261F" stroke-width="${2.2*fs}" paint-order="stroke">${player.chips}</text>
         ${isBtn?`<circle cx="${x+avatarR*0.72}" cy="${y-avatarR*0.72}" r="${7*fs}" fill="#F1ECE1" stroke="#16261F" stroke-width="1"/><text x="${x+avatarR*0.72}" y="${y-avatarR*0.72+3*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${8*fs}" font-weight="800" fill="#16261F">D</text>`:''}
         ${bet>0?`<foreignObject x="${x-14*fs}" y="${y+avatarR+3*fs}" width="${28*fs}" height="${28*fs}"><div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;">${pokerChipHTML(bet, 28*fs)}</div></foreignObject>`:''}
         <rect x="${lx-pillW/2}" y="${ly-11*fs}" width="${pillW}" height="${19*fs}" rx="${9.5*fs}" fill="rgba(10,20,16,0.92)" stroke="${isTurn?'#D4AF6A':'#3C5A4C'}" stroke-width="1"/>
