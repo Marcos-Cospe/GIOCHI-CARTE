@@ -12086,23 +12086,17 @@ function renderUnoMatch(match, claim){
   // restano altre uguali (stesso valore o stesso tipo) in mano, con un pulsante per
   // chiudere lo scarico e passare il turno con l'effetto complessivo di tutte le carte
   // buttate insieme.
-  let dumpPanel = '';
+  // Compatto, sulla stessa riga del pulsante UNO subito sotto la tua mano: niente
+  // da scorrere. L'ultima carta scaricata (quella che decide il colore) e' gia'
+  // in cima agli scarti; tocca altre carte uguali nella mano per aggiungerle.
+  let dumpBtns = '';
   if(dumpForMe){
     const count = dump.played.length;
-    const sequenza = dump.played.map((c,i)=>{
-      const isLast = i===count-1;
-      return `<span style="display:inline-block;${isLast?'box-shadow:0 0 0 2px #D4AF6A;border-radius:6px;':''}">${unoCardSVG(c, 34, 48)}</span>`;
-    }).join('<span style="align-self:center;color:#8AA396;font-size:11px;">→</span>');
-    dumpPanel = `
-      <div class="turn-banner" style="border-color:#D4AF6A;">
-        Hai scaricato ${count} cart${count===1?'a':'e'} finora, nell'ordine che hai scelto tu — l'ultima (evidenziata) decide il colore con cui si continua.
-      </div>
-      <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin:8px 0;">${sequenza}</div>
-      <div class="row-btns" style="margin-bottom:10px;">
-        ${count>1?`<button class="btn-secondary" onclick="unoUndoLastDump('${match.id}','${dump.playerId}')">Annulla l'ultima</button>`:''}
-        <button class="btn-primary" style="flex:1;" onclick="unoFinishDump('${match.id}','${dump.playerId}')">Continua (${count} cart${count===1?'a':'e'})</button>
-      </div>`;
+    dumpBtns = `
+      ${count>1?`<button class="btn-secondary btn-small" style="flex:0 0 auto;width:auto;padding:4px 12px;font-size:12px;" onclick="unoUndoLastDump('${match.id}','${dump.playerId}')">Annulla</button>`:''}
+      <button class="btn-primary btn-small" style="flex:0 0 auto;width:auto;padding:4px 14px;font-size:12px;" onclick="unoFinishDump('${match.id}','${dump.playerId}')">Continua (${count})</button>`;
   }
+  const dumpPanel = '';
 
   // pannello scelta colore
   let colorPanel = '';
@@ -12129,7 +12123,8 @@ function renderUnoMatch(match, claim){
   // ci si puo' dichiarare in anticipo per mettersi al sicuro subito.
   const iAmSafe = myId && match.unoDeclared[myId];
   const unoBtnSmall = (myId && match.phase==='playing') ? `
-    <div style="display:flex;justify-content:flex-end;margin:6px 0;">
+    <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin:6px 0;">
+      ${dumpBtns}
       <button class="btn-secondary btn-small" style="${iAmSafe?'opacity:0.5;':''}background:#D5262C;color:#fff;border-color:#D5262C;padding:4px 14px;font-size:12px;" onclick="unoDeclare('${match.id}','${myId}')">UNO</button>
     </div>` : '';
 
