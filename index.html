@@ -11115,54 +11115,11 @@ function unoCardLabel(card){
   return '';
 }
 
-// Facce delle carte UNO disegnate in vettoriale (non piu' le PNG da 46x69
-// con il bordo bianco stampato dentro): stessa forma e proporzioni del dorso
-// (UNO_BACK_IMG, 60x84 con angoli da 8), nitide a qualsiasi dimensione e
-// senza download, quindi pronte anche per il volo della prima apparizione.
-const unoFaceCache = {};
-function unoSymbolSVG(card, fill, big){
-  // simbolo centrale (big) o d'angolo, centrato in 0,0
-  const sw = big ? 1.4 : 0.9;
-  const txt = (t, size) => `<text x="0" y="${size*0.36}" text-anchor="middle" font-family="Helvetica Neue,Arial,sans-serif" font-weight="900" font-style="italic" font-size="${size}" fill="${fill}" stroke="#111" stroke-width="${big?sw:0}" paint-order="stroke">${t}</text>`;
-  if(card.kind==='number') return txt(card.value, big ? 34 : 13);
-  if(card.kind==='draw2') return txt('+2', big ? 26 : 11);
-  if(card.kind==='wild4') return txt('+4', big ? 26 : 11);
-  const k = big ? 1 : 0.42;
-  if(card.kind==='skip') return `<g transform="scale(${k})"><circle r="12" fill="none" stroke="#111" stroke-width="7.5"/><circle r="12" fill="none" stroke="${fill}" stroke-width="5"/><line x1="-8.5" y1="8.5" x2="8.5" y2="-8.5" stroke="#111" stroke-width="7.5"/><line x1="-8.5" y1="8.5" x2="8.5" y2="-8.5" stroke="${fill}" stroke-width="5"/></g>`;
-  if(card.kind==='reverse'){
-    const arrow = 'M-11,-2.5 h10 v-5 l9,7.5 l-9,7.5 v-5 h-10 z';
-    return `<g transform="scale(${k}) rotate(-45)"><path d="${arrow}" transform="translate(0,-6)" fill="${fill}" stroke="#111" stroke-width="1.2"/><path d="${arrow}" transform="translate(0,6) rotate(180)" fill="${fill}" stroke="#111" stroke-width="1.2"/></g>`;
-  }
-  return '';
-}
 function unoCardImageHref(card){
-  const key = card.kind==='number' ? card.color+'-'+card.value : ((card.kind==='wild'||card.kind==='wild4') ? card.kind : card.color+'-'+card.kind);
-  if(unoFaceCache[key]) return unoFaceCache[key];
-  const wild = card.kind==='wild' || card.kind==='wild4';
-  const col = wild ? '#161616' : (UNO_COLOR_HEX[card.color] || '#888');
-  const oval = '<ellipse cx="30" cy="42" rx="20" ry="32" transform="rotate(-24 30 42)"';
-  let center;
-  if(wild){
-    // ovale diviso nei 4 colori
-    center = `<clipPath id="o">${oval}/></clipPath>
-      <g clip-path="url(#o)">
-        <rect x="0" y="0" width="30" height="42" fill="${UNO_COLOR_HEX.Rosso}"/><rect x="30" y="0" width="30" height="42" fill="${UNO_COLOR_HEX.Blu}"/>
-        <rect x="0" y="42" width="30" height="42" fill="${UNO_COLOR_HEX.Giallo}"/><rect x="30" y="42" width="30" height="42" fill="${UNO_COLOR_HEX.Verde}"/>
-      </g>${oval} fill="none" stroke="#fff" stroke-width="2"/>
-      ${card.kind==='wild4' ? `<g transform="translate(30 42)">${unoSymbolSVG(card, '#fff', true)}</g>` : ''}`;
-  } else {
-    center = `${oval} fill="#fff"/><g transform="translate(30 42)">${unoSymbolSVG(card, col, true)}</g>`;
-  }
-  const corner = wild
-    ? (card.kind==='wild4' ? unoSymbolSVG(card, '#fff', false) : `<g transform="scale(0.3)"><circle r="9" fill="${UNO_COLOR_HEX.Rosso}"/><path d="M0,-9 A9,9 0 0 1 9,0 L0,0 Z" fill="${UNO_COLOR_HEX.Blu}"/><path d="M0,9 A9,9 0 0 1 -9,0 L0,0 Z" fill="${UNO_COLOR_HEX.Giallo}"/><path d="M9,0 A9,9 0 0 1 0,9 L0,0 Z" fill="${UNO_COLOR_HEX.Verde}"/></g>`)
-    : unoSymbolSVG(card, '#fff', false);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 84" width="60" height="84">
-    <rect x="1" y="1" width="58" height="82" rx="8" fill="${col}" stroke="rgba(0,0,0,.55)" stroke-width="1.2"/>
-    ${center}
-    <g transform="translate(10.5 12)">${corner}</g>
-    <g transform="translate(49.5 72) rotate(180)">${corner}</g>
-  </svg>`;
-  return unoFaceCache[key] = 'data:image/svg+xml;utf8,'+encodeURIComponent(svg);
+  if(card.kind==='wild') return 'cards-uno/wild.png';
+  if(card.kind==='wild4') return 'cards-uno/wild4.png';
+  const suffix = card.kind==='number' ? card.value : card.kind;
+  return `cards-uno/${card.color}-${suffix}.png`;
 }
 function unoCardSVG(card, w, h, dim){
   const href = unoCardImageHref(card);
@@ -11840,8 +11797,9 @@ function unoTableSVG(match, myId){
   });
 
   const top = match.discard[match.discard.length-1];
-  // proporzioni vere di una carta (60x84), uguali per mazzo e scarti
-  const cW = 38*fs, cH = cW*84/60;
+  // stesse proporzioni delle immagini delle carte (46x69): la carta riempie
+  // tutto lo spazio, senza fasce vuote sopra e sotto; il mazzo ha la stessa forma
+  const cW = 36*fs, cH = cW*69/46;
   const gap = 23*fs;
   const dirArrow = match.direction===1 ? '↻' : '↺';
   const colorDot = UNO_COLOR_HEX[match.currentColor] || '#888';
@@ -11888,7 +11846,7 @@ function unoTableSVG(match, myId){
 }
 // versioni "inline" (senza il proprio tag <svg>) per essere incorporate dentro renderCavaCamisaTableSVG-style di sopra
 function unoCardBackSVGInline(w,h){
-  return `<image href="${UNO_BACK_IMG}" x="${-w/2}" y="${-h/2}" width="${w}" height="${h}" preserveAspectRatio="xMidYMid meet"/>`;
+  return `<image href="${UNO_BACK_IMG}" x="${-w/2}" y="${-h/2}" width="${w}" height="${h}" preserveAspectRatio="none"/>`;
 }
 function unoCardSVGInline(card, w, h){
   const href = unoCardImageHref(card);
