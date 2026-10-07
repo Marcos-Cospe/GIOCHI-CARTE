@@ -1071,7 +1071,8 @@ function cardFxDealBurst(handSize, backImgSrc){
 // perche' non esistono ne' etichette ne' sfondo, solo la carta stessa in volo.
 function flyCardImage(imgSrc, fromRect, toRect, opts){
   opts = opts || {};
-  if(!fromRect || !toRect || !imgSrc) return;
+  const done = () => { if(typeof opts.onDone==='function'){ const f=opts.onDone; opts.onDone=null; f(); } };
+  if(!fromRect || !toRect || !imgSrc){ done(); return; }
   const w = opts.width || 46, h = opts.height || 64;
   // Un contenitore esterno gestisce posizione/prospettiva, l'immagine dentro
   // gestisce solo la rotazione: separarli evita il difetto (verificato a
@@ -1107,10 +1108,40 @@ function flyCardImage(imgSrc, fromRect, toRect, opts){
   const wobble = tumble ? (Math.random()*26-13) : 0;
   gsap.set(wrap, { x:fx, y:fy, opacity:0 });
   gsap.set(el, { scale:0.75, rotate: opts.rot0||0, rotateY:0, rotateX:0, transformPerspective:700 });
-  gsap.timeline({ onComplete: ()=>{ gsap.to(wrap, { opacity:0, duration:0.16, onComplete:()=>wrap.remove() }); } })
-    .to(wrap, { opacity:1, duration:0.07 }, 0)
-    .to(wrap, { x:tx, y:ty, duration:dur, ease:'power2.out' }, 0)
-    .to(el, { scale:1, rotate:0, rotateY:spin, rotateX:wobble, duration:dur, ease:'power2.out' }, 0);
+  const start = () => {
+    gsap.timeline({ onComplete: ()=>{ done(); gsap.to(wrap, { opacity:0, duration:0.16, onComplete:()=>wrap.remove() }); } })
+      .to(wrap, { opacity:1, duration:0.07 }, 0)
+      .to(wrap, { x:tx, y:ty, duration:dur, ease:'power2.out' }, 0)
+      .to(el, { scale:1, rotate:0, rotateY:spin, rotateX:wobble, duration:dur, ease:'power2.out' }, 0);
+  };
+  // Immagine non ancora scaricata (es. la faccia di una carta avversaria vista
+  // per la prima volta, su rete lenta): partire subito vorrebbe dire far volare
+  // un riquadro vuoto e vedere la carta "comparire" gia' a destinazione. Si
+  // aspetta che sia pronta, al massimo 700 ms, poi si parte comunque.
+  if(el.complete && el.naturalWidth>0){ start(); return; }
+  let started = false;
+  const go = () => { if(started) return; started = true; start(); };
+  el.addEventListener('load', go, { once:true });
+  el.addEventListener('error', go, { once:true });
+  setTimeout(go, 700);
+}
+// Precarica tutte le facce del mazzo del gioco in corso, una volta sola per
+// sessione: cosi' le carte degli avversari sono gia' pronte quando volano.
+const preloadedDecks = {};
+const preloadedImgs = [];
+function preloadDeckImages(game){
+  const deck = (game==='uno') ? 'uno'
+    : (game==='scala40' || game==='poker' || game==='joputa' || game==='blackjack') ? 'poker'
+    : (!game || game==='scopa' || game==='briscola' || game==='vecia' || game==='cavacamisa' || game==='bisca') ? 'italian' : null;
+  if(!deck || preloadedDecks[deck]) return;
+  preloadedDecks[deck] = true;
+  let urls = [];
+  try{
+    if(deck==='uno') urls = buildUnoDeck().map(unoCardImageHref);
+    else if(deck==='poker') urls = buildScala40Deck().map(scala40ImageHref).concat([POKER_BACK_IMG]);
+    else urls = Object.values(CARD_IMG);
+  }catch(e){ return; }
+  Array.from(new Set(urls)).forEach((u,i)=> setTimeout(()=>{ const im = new Image(); im.src = u; preloadedImgs.push(im); }, i*15));
 }
 // Mescolata visiva prima della distribuzione: un mazzetto di dorsi al centro
 // dello schermo si taglia in due e si ricongiunge, come un vero riffle
@@ -1306,15 +1337,15 @@ function cardMotionFly(mv, model, prevPileTopId, myId){
     const seatRect = cardMotionSeatRect(model.lastActor);
     if(deckRect && seatRect){
       const destEl = mv.toCard ? document.querySelector('#app [data-card="'+mv.id+'"]') : null;
-      if(destEl){ destEl.style.visibility = 'hidden'; setTimeout(()=>{ destEl.style.visibility = ''; }, 760); }
+      const reveal = () => { if(destEl) destEl.style.visibility = ''; };
+      if(destEl){ destEl.style.visibility = 'hidden'; setTimeout(reveal, 2200); }
       sndCardPlay();
-      flyCardImage(model.back, deckRect, seatRect, { width:32, height:46, duration:0.34, rot0: Math.random()*24-12 });
-      setTimeout(()=>{
+      flyCardImage(model.back, deckRect, seatRect, { width:32, height:46, duration:0.34, rot0: Math.random()*24-12, onDone: ()=>{
         const from2 = cardMotionSeatRect(model.lastActor) || seatRect;
         const to2 = destEl ? destEl.getBoundingClientRect() : (cardMotionAt('[data-pile]') || table);
         sndCardPlay();
-        flyCardImage(model.face(mv.card), from2, to2, { width: destEl ? Math.max(24, Math.min(70, to2.width)) : 32, height: destEl ? Math.max(34, Math.min(100, to2.height)) : 46, duration:0.34, rot0: Math.random()*24-12 });
-      }, 400);
+        flyCardImage(model.face(mv.card), from2, to2, { width: destEl ? Math.max(24, Math.min(70, to2.width)) : 32, height: destEl ? Math.max(34, Math.min(100, to2.height)) : 46, duration:0.34, rot0: Math.random()*24-12, onDone: reveal });
+      }});
       return;
     }
   }
@@ -1358,13 +1389,15 @@ function cardMotionFly(mv, model, prevPileTopId, myId){
   const dy = (fromRect.top+fromRect.height/2) - (toRect.top+toRect.height/2);
   if(Math.hypot(dx,dy) < 10) return;
   const dur = mv.to && !destEl ? 0.36 : 0.34;
+  let reveal = () => {};
   if(destEl){
     destEl.style.visibility = 'hidden';
-    setTimeout(()=>{ destEl.style.visibility = ''; }, dur*1000+20);
+    reveal = () => { destEl.style.visibility = ''; };
+    setTimeout(reveal, 1600); // rete di sicurezza
   }
   const now = performance.now();
   if(now - cardMotionSoundAt > 70){ cardMotionSoundAt = now; sndCardPlay(); }
-  flyCardImage(img, fromRect, toRect, { width:w, height:h, duration:dur, rot0: Math.random()*24-12 });
+  flyCardImage(img, fromRect, toRect, { width:w, height:h, duration:dur, rot0: Math.random()*24-12, onDone: reveal });
 }
 // =========================================================================
 // Mazziere manuale per tutti i giochi di carte (Bisca ha il suo, piu' vecchio:
@@ -3064,6 +3097,7 @@ async function render(force){
     if(match.game==='roulette') activateRouletteSpinAnimation();
     if(match.game==='battaglianavale') activateBattleshipShotAnimation(match, claim);
     if(!match.game) activateBiscaDealAnimation(match);
+    preloadDeckImages(match.game);
     activateCardMotion(match, claim);
     activateManualDeal(match, claim || (match.game ? {type:'all'} : null));
     scheduleBotMove();
