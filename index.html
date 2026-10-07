@@ -245,6 +245,16 @@ body.force-share.in-match #sync-panel{display:block !important;}
 
 /* ---------- Tavolo e animazioni ---------- */
 .table-wrap{display:flex;justify-content:center;margin:0 -18px 16px;}
+/* La tua mano in basso sul tavolo (activateTableHand) */
+.table-wrap.with-hand{flex-direction:column;align-items:center;}
+.table-hand{position:relative;z-index:2;width:100%;display:flex;justify-content:center;align-items:flex-start;pointer-events:none;}
+.table-hand .my-hand-src{pointer-events:auto;transform-origin:top center;}
+.table-hand .hand,.table-hand .hand-grid6,.table-hand .th-row{display:flex !important;flex-wrap:nowrap !important;gap:0 !important;justify-content:center;margin:0 !important;}
+.table-hand .th-rows{display:flex;flex-direction:column;align-items:center;gap:6px;}
+.table-hand .hand-card{flex:0 0 auto;filter:drop-shadow(0 3px 5px rgba(0,0,0,.45));}
+.table-hand p.hint{margin:0;pointer-events:none;}
+.cava-stack{position:relative;padding:0;}
+.cava-stack-n{position:absolute;right:4px;bottom:4px;z-index:3;min-width:22px;height:22px;border-radius:11px;background:#16261F;border:1px solid #D4AF6A;color:#D4AF6A;font:700 12px/20px 'IBM Plex Mono',monospace;text-align:center;}
 /* Distribuzione manuale (mdeal): la partita e' ferma, si tocca solo il tavolo */
 #app.mdeal-on [onclick]:not([data-mdeal]){pointer-events:none;}
 #app.mdeal-on .toolbar [onclick]{pointer-events:auto;}
@@ -1676,6 +1686,75 @@ function activateManualDeal(match, claim){
        <div class="mdeal-sub">${md.cursor}/${md.total}</div></div>`;
   if(turnBar) turnBar.insertAdjacentElement('beforebegin', box);
   else wrap.insertAdjacentElement('afterend', box);
+}
+// Sposta la tua mano (l'elemento .my-hand-src che ogni gioco disegna come
+// sempre) in basso sul tavolo, al posto del tuo avatar: grande, a ventaglio
+// sovrapposto quanto basta per stare nella larghezza, su due o tre righe se
+// le carte sono tantissime. I tocchi restano quelli di prima (onclick sulle
+// carte), cambia solo dove stanno.
+function activateTableHand(match, claim){
+  if(!claim || claim.type!=='seat') return;
+  const src = document.querySelector('#app .my-hand-src');
+  const wrap = document.querySelector('#app .table-wrap');
+  if(!src || !wrap) return;
+  document.querySelectorAll('#app .my-hand-title').forEach(e=>e.remove());
+  const box = document.createElement('div');
+  box.className = 'table-hand';
+  wrap.classList.add('with-hand');
+  wrap.appendChild(box);
+  box.appendChild(src);
+  layoutTableHand(box, wrap);
+}
+function layoutTableHand(box, wrap){
+  const src = box.firstElementChild;
+  const svg = wrap.querySelector('svg');
+  const svgH = svg ? svg.getBoundingClientRect().height : 0;
+  // la fascia bassa del tavolo e' libera (niente piu' tuo avatar): la mano ci sale sopra
+  box.style.marginTop = (wrap.closest('.poker-table-col') ? 6 : -Math.round(svgH*0.20))+'px';
+  const row = src.querySelector('.hand, .hand-grid6') || src;
+  const cards = Array.from(row.children).filter(el=>el.classList.contains('hand-card'));
+  if(!cards.length){ box.style.height = src.offsetHeight+'px'; return; }
+  const n = cards.length;
+  const cw = cards[0].getBoundingClientRect().width || 52;
+  const ch = cards[0].getBoundingClientRect().height || 74;
+  const avail = Math.max(120, box.clientWidth - 16);
+  // mai piu' alta di circa un terzo del tavolo (le trevigiane sono alte e strette)
+  const maxScale = Math.max(1, Math.min(1.4, (svgH ? svgH*0.30 : 120) / ch));
+  const MIN_VISIBLE = 0.34; // quanto resta visibile (e toccabile) di ogni carta coperta dalla successiva
+  // ingrandita il piu' possibile (fino a 1.4x), su una riga se ci sta, altrimenti su piu' righe
+  let scale = 1, perRow = n;
+  for(const sc of [1.4, 1.25, 1.1, 1].map(v=>Math.min(v, maxScale)).filter((v,k,a)=>a.indexOf(v)===k)){
+    const maxW = avail/sc;
+    const step = n>1 ? (maxW - cw)/(n-1) : cw;
+    if(step >= cw*MIN_VISIBLE){ scale = sc; perRow = n; break; }
+    if(sc===1){
+      scale = 1;
+      perRow = Math.ceil(n / Math.ceil(n / Math.max(2, Math.floor((maxW - cw)/(cw*MIN_VISIBLE)) + 1)));
+    }
+  }
+  const rows = [];
+  for(let k=0;k<n;k+=perRow) rows.push(cards.slice(k, k+perRow));
+  if(rows.length>1){
+    const holder = document.createElement('div');
+    holder.className = 'th-rows';
+    rows.forEach(rc=>{ const r = document.createElement('div'); r.className = 'th-row'; rc.forEach(c=>r.appendChild(c)); holder.appendChild(r); });
+    row.innerHTML = '';
+    row.appendChild(holder);
+  }
+  const maxW = avail/scale;
+  rows.forEach(rc=>{
+    const m = rc.length;
+    const step = m>1 ? Math.min(cw+4, (maxW - cw)/(m-1)) : cw;
+    rc.forEach((c,k)=>{ c.style.marginLeft = k ? (step - cw)+'px' : '0'; c.style.position = 'relative'; c.style.zIndex = String(k+1); });
+  });
+  src.style.transform = 'scale('+scale+')';
+  // lo spazio riservato sotto al tavolo segue l'altezza vera della mano
+  // ingrandita, anche quando le immagini finiscono di caricarsi dopo
+  // (altrimenti la mano coprirebbe i pulsanti che stanno sotto)
+  const fit = () => { box.style.height = Math.ceil(src.offsetHeight*scale + 4)+'px'; };
+  fit();
+  if(window.ResizeObserver) new ResizeObserver(fit).observe(src);
+  src.querySelectorAll('img').forEach(img=>{ if(!img.complete) img.addEventListener('load', fit, { once:true }); });
 }
 function hudAvatar(name){
   const initial = (name||'?').trim().charAt(0).toUpperCase() || '?';
@@ -3126,6 +3205,7 @@ async function render(force){
     if(match.game==='battaglianavale') activateBattleshipShotAnimation(match, claim);
     if(!match.game) activateBiscaDealAnimation(match);
     preloadDeckImages(match.game);
+    activateTableHand(match, claim);
     activateCardMotion(match, claim);
     activateManualDeal(match, claim || (match.game ? {type:'all'} : null));
     scheduleBotMove();
@@ -4603,6 +4683,31 @@ function rectSeatLayout(halfW, halfH, n){
 // stesso sempre nello stesso punto, indipendentemente dall'ordine di turno reale.
 // Senza un mio posto specifico (visione condivisa "tutti visibili"), l'ordine resta
 // quello originale.
+// Posti quando giochi tu (myId e' il primo di ids): il tuo posto non si
+// disegna piu' (la tua mano sta in basso sul tavolo, vedi activateTableHand)
+// e gli avversari si distribuiscono lungo lato sinistro, lato alto e lato
+// destro, lasciando libera la fascia in basso. Il tuo punto resta come
+// riferimento invisibile (mazziere, carte in volo, carta giocata).
+function tableSeatLayout(half, ids, myId){
+  const n = ids.length;
+  if(!myId || ids[0]!==myId || n<2) return rectSeatLayout(half, half, n);
+  const m = n-1;
+  const sideTop = -half, sideBottom = half*0.30;
+  const sideLen = sideBottom - sideTop, topLen = 2*half;
+  const L = 2*sideLen + topLen;
+  const out = [{ x:0, y:half*0.78, dirX:0, dirY:1, me:true }];
+  for(let k=0;k<m;k++){
+    const d = (k+0.5)/m*L;
+    if(d < sideLen) out.push({ x:-half, y: sideBottom - d, dirX:-1, dirY:0 });
+    else if(d < sideLen+topLen) out.push({ x:-half + (d-sideLen), y:-half, dirX:0, dirY:-1 });
+    else out.push({ x:half, y: sideTop + (d-sideLen-topLen), dirX:1, dirY:0 });
+  }
+  return out;
+}
+// il tuo posto, invisibile: solo il punto (e l'eventuale carta che hai giocato)
+function mySeatMarkerSVG(pid, x, y, r, extra){
+  return `<g data-seat="${pid}"><circle cx="${x}" cy="${y}" r="${r}" fill="transparent" pointer-events="none"/>${extra||''}</g>`;
+}
 function rotateIdsForMe(ids, myId){
   if(!myId) return ids;
   const idx = ids.indexOf(myId);
@@ -4682,7 +4787,7 @@ function renderTableSVG(match, cards, revealAll, myId){
   // posto del giocatore sul tavolo per dargli una carta — niente schermata a
   // parte, si resta a guardare lo stesso tavolo per tutta la mano.
   const canDeal = match.phase==='dealing' && !revealAll && myId===match.players[match.dealerIdx].id;
-  const layout = rectSeatLayout(half, half, n);
+  const layout = tableSeatLayout(half, ids, revealAll?null:myId);
 
   let seats = '';
   let turnDotSvg = '';
@@ -4797,6 +4902,7 @@ function renderTableSVG(match, cards, revealAll, myId){
     // cerchio invisibile ma "riempito" (fill="transparent", diverso da
     // "none": quello resta cliccabile) copre TUTTA l'area evidenziata, non
     // solo i pochi pixel di stroke o il piccolo cerchio dell'avatar dentro.
+    if(layout[i].me){ turnDotSvg = ''; seats += mySeatMarkerSVG(pid, x, y, avatarR, playedCardSvg); return; }
     seats += `
       <g id="table-seat-${pid}" data-seat="${pid}" ${dealableHere?`onclick="dealBiscaCard('${match.id}','${myId}','${pid}')" style="cursor:pointer;"`:''}>
         ${dealableHere?`<circle cx="${x}" cy="${y}" r="${avatarR+9}" fill="transparent"/>`:''}
@@ -4889,7 +4995,7 @@ function renderScopaTableSVG(match, myId){
   // tavolo rettangolare puo' essere un quadrato ampio, quasi fino al bordo interno degli
   // avatar, molto piu' grande del vecchio cerchio centrale.
   const centerHalf = half - avatarR - 16*fs;
-  const layout = rectSeatLayout(half, half, n);
+  const layout = tableSeatLayout(half, ids, myId);
 
   const turnPid = match.turnOrder[match.turnIdx];
   const activePid = match.pendingCapture ? match.pendingCapture.playerId : (match.captureReveal ? match.captureReveal.playerId : turnPid);
@@ -4936,6 +5042,7 @@ function renderScopaTableSVG(match, myId){
       turnDotSvg = `<circle class="turn-dot" cx="${dx2}" cy="${dy2}" r="${5*fs}" fill="#D4AF6A" stroke="#16261F" stroke-width="1.2"/>`;
     }
 
+    if(layout[i].me){ turnDotSvg = ''; seats += mySeatMarkerSVG(pid, x, y, avatarR, ''); return; }
     seats += `
       <g data-seat="${pid}">
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
@@ -5127,8 +5234,8 @@ function renderScopaMatch(match, claim){
       ${revealBanner}
       ${tableSvg}
       ${captureChoice}
-      <h2>${revealAll?'Mano di '+esc(nameOf(match,handOwner)):'La tua mano'}</h2>
-      ${handHtml}
+      <h2 class="${revealAll?'':'my-hand-title'}">${revealAll?'Mano di '+esc(nameOf(match,handOwner)):'La tua mano'}</h2>
+      <div class="${revealAll?'':'my-hand-src'}">${handHtml}</div>
       ${otherHandsReveal}
     </div>`;
 }
@@ -5477,7 +5584,7 @@ function renderBriscolaTableSVG(match, myId){
   const cardW = 52*cardSc, cardH = 108*cardSc;
   const is2v2 = match.format==='2v2';
   const turnId = match.trick.resolved ? null : match.trick.turnOrder[match.trick.plays.length];
-  const layout = rectSeatLayout(half, half, n);
+  const layout = tableSeatLayout(half, ids, myId);
 
   let seats = '';
   let turnDotSvg = '';
@@ -5542,6 +5649,7 @@ function renderBriscolaTableSVG(match, myId){
       turnDotSvg = `<circle class="turn-dot" cx="${dx2}" cy="${dy2}" r="${5*fs}" fill="#D4AF6A" stroke="#16261F" stroke-width="1.2"/>`;
     }
 
+    if(layout[i].me){ turnDotSvg = ''; seats += mySeatMarkerSVG(pid, x, y, avatarR, playedCardSvg); return; }
     seats += `
       <g data-seat="${pid}">
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
@@ -5685,8 +5793,8 @@ function renderBriscolaMatch(match, claim){
       ${turnBanner}
       ${continueBlock}
       ${tableSvg}
-      <h2>${revealAll?'Mano di '+esc(nameOf(match,displayOwner)):'La tua mano'}</h2>
-      ${handHtml}
+      <h2 class="${revealAll?'':'my-hand-title'}">${revealAll?'Mano di '+esc(nameOf(match,displayOwner)):'La tua mano'}</h2>
+      <div class="${revealAll?'':'my-hand-src'}">${handHtml}</div>
     </div>`;
 }
 
@@ -5896,7 +6004,7 @@ function renderVeciaTableSVG(match, myId){
   const C = tableConfig(n);
   const VB = C.VB, fs = C.fs;
   const cx = VB/2, cy = VB/2, half = C.half, avatarR = C.avatarR;
-  const layout = rectSeatLayout(half, half, n);
+  const layout = tableSeatLayout(half, ids, myId);
   const drawerId = match.turnOrder[match.currentIdx];
 
   let seats = '';
@@ -5933,6 +6041,7 @@ function renderVeciaTableSVG(match, myId){
         <circle cx="${x+17*fs}" cy="${y+15*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+17*fs}" y="${y+18.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>`;
 
+    if(layout[i].me){ turnDotSvg = ''; seats += mySeatMarkerSVG(pid, x, y, avatarR, ''); return; }
     seats += `
       <g data-seat="${pid}">
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
@@ -6045,8 +6154,8 @@ function renderVeciaMatch(match, claim){
       ${revealBanner}
       ${tableSvg}
       ${drawPicker}
-      <h2>${revealAll?'Mano di '+esc(nameOf(match,displayOwner)):'La tua mano'}</h2>
-      ${handHtml}
+      <h2 class="${revealAll?'':'my-hand-title'}">${revealAll?'Mano di '+esc(nameOf(match,displayOwner)):'La tua mano'}</h2>
+      <div class="${revealAll?'':'my-hand-src'}">${handHtml}</div>
       ${shuffleBtn}
     </div>`;
 }
@@ -6456,7 +6565,7 @@ function joputaTableSVG(match, myId){
   const C = tableConfig(n);
   const VB = C.VB, fs = C.fs;
   const cx = VB/2, cy = VB/2, half = C.half, avatarR = C.avatarR;
-  const layout = rectSeatLayout(half, half, n);
+  const layout = tableSeatLayout(half, ids, myId);
   const cw = 17.5*fs, ch = 24.5*fs, gap = 2.5*fs;
   let seats = '', slotsSvg = '';
   ids.forEach((pid,i)=>{
@@ -6474,6 +6583,7 @@ function joputaTableSVG(match, myId){
     const label = esc(nm) + (isMe?' (tu)':(player.isBot?' ᴀɪ':'')) + (done?' ✅'+(pos+1):'') + (match.phase==='swap' && match.ready[pid] ? ' ✓' : '');
     const pillW = Math.max(52*fs, label.length*7*fs + 16);
     const lx = Math.max(pillW/2+3, Math.min(VB-pillW/2-3, x));
+    if(layout[i].me){ seats += mySeatMarkerSVG(pid, x, y, avatarR, ''); return; }
     seats += `
       <g data-seat="${pid}">
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
@@ -6593,8 +6703,8 @@ function renderJoputaMatch(match, claim){
       <h2>Le tue carte sul tavolo</h2>
       <p class="hint" style="margin-top:-8px;">Le coperte non si possono guardare. Le scoperte stanno sopra.</p>
       ${slotsHtml({ upSelected:(k)=> pick && pick.kind==='up' && pick.key===k, upClick: canSwap ? (k)=>`joputaSwapTap('${match.id}','${myId}','up',${k})` : null })}
-      <h2>La tua mano</h2>
-      ${handHtml}
+      <h2 class="${revealAll?'':'my-hand-title'}">La tua mano</h2>
+      <div class="${revealAll?'':'my-hand-src'}">${handHtml}</div>
       ${canSwap ? `<button class="btn-primary" style="width:100%;margin-top:12px;" onclick="joputaSwapPick=null; joputaReady('${match.id}','${myId}')">Sono pronto ✓</button>` : ''}
     </div>`;
   }
@@ -6637,8 +6747,8 @@ function renderJoputaMatch(match, claim){
       ${errorBanner}
       ${tableSvg}
       ${finishedRow}
-      ${myId ? `<h2>${revealAll?'Carte di '+esc(nameOf(match,myId)):'La tua mano'}</h2>
-      ${handHtml}
+      ${myId ? `<h2 class="${revealAll?'':'my-hand-title'}">${revealAll?'Carte di '+esc(nameOf(match,myId)):'La tua mano'}</h2>
+      <div class="${revealAll?'':'my-hand-src'}">${handHtml}</div>
       ${actionsHtml}
       <h2>${revealAll?'Sul tavolo':'Le tue carte sul tavolo'}</h2>
       ${slotsHtml({
@@ -6870,7 +6980,7 @@ function renderCavaCamisaTableSVG(match, myId){
   const C = tableConfig(n);
   const VB = C.VB, fs = C.fs;
   const cx = VB/2, cy = VB/2, half = C.half, avatarR = C.avatarR;
-  const layout = rectSeatLayout(half, half, n);
+  const layout = tableSeatLayout(half, ids, myId);
 
   let seats = '';
   let turnDotSvg = '';
@@ -6907,6 +7017,7 @@ function renderCavaCamisaTableSVG(match, myId){
         <circle cx="${x+17*fs}" cy="${y+15*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+17*fs}" y="${y+18.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>`;
 
+    if(layout[i].me){ turnDotSvg = ''; seats += mySeatMarkerSVG(pid, x, y, avatarR, ''); return; }
     seats += `
       <g data-seat="${pid}">
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
@@ -7056,6 +7167,7 @@ function renderCavaCamisaMatch(match, claim){
       ${challengeBanner}
       ${revealBanner}
       ${tableSvg}
+      ${(!revealAll && myId && myCards.length) ? `<div class="my-hand-src"><div class="hand"><button class="hand-card cava-stack" ${puoiTirare?`onclick="cavaCamisaFlip('${match.id}','${flipperId}')"`:''} title="Il tuo mazzetto">${[0,1,2].slice(0, Math.min(3, myCards.length)).map(k=>`<img src="${CARD_IMG['back']}" style="position:${k?'absolute':'relative'};left:${k*3}px;top:${-k*3}px;width:52px;height:104px;border-radius:5px;" alt=""/>`).join('')}<span class="cava-stack-n">${myCards.length}</span></button></div></div>` : ''}
       ${pileStrip}
       ${azioniBtn}
       <p class="hint">${revealAll?'Mazzetto di '+esc(nameOf(match,displayOwner)):'Il tuo mazzetto'}: ${myCards.length} cart${myCards.length===1?'a':'e'} coperte — non sai cosa uscirà finché non giri.</p>
@@ -11792,7 +11904,7 @@ function unoTableSVG(match, myId){
   const C = tableConfig(n);
   const VB = C.VB, fs = C.fs;
   const cx = VB/2, cy = VB/2, half = C.half, avatarR = C.avatarR;
-  const layout = rectSeatLayout(half, half, n);
+  const layout = tableSeatLayout(half, ids, myId);
 
   let seats = '';
   ids.forEach((pid,i)=>{
@@ -11812,6 +11924,7 @@ function unoTableSVG(match, myId){
     const lx = Math.max(pillW/2+3, Math.min(VB-pillW/2-3, x));
     const ly = nameY;
 
+    if(layout[i].me){ seats += mySeatMarkerSVG(pid, x, y, avatarR, ''); return; }
     seats += `
       <g data-seat="${pid}">
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
@@ -12048,8 +12161,8 @@ function renderUnoMatch(match, claim){
       ${unoPanel}
       ${drawnPanel}
       ${!drawnForMe ? drawBtn : ''}
-      <h3 style="margin:10px 0 0;">${revealAll?'Mano di '+esc(nameOf(match,displayOwner)):'La tua mano'} (${handCount})</h3>
-      ${handHtml}
+      <h3 class="${revealAll?'':'my-hand-title'}" style="margin:10px 0 0;">${revealAll?'Mano di '+esc(nameOf(match,displayOwner)):'La tua mano'} (${handCount})</h3>
+      <div class="${revealAll?'':'my-hand-src'}">${handHtml}</div>
     </div>`;
 }
 
@@ -12232,14 +12345,14 @@ function renderHandsBlock(match, cards, revealAll, myId, opts){
 
     let cardsHtml;
     if(hidden){
-      cardsHtml = `<div class="hand">${hand.map(()=>`<span class="hand-card hidden-card">${cardBackSVG()}</span>`).join('')}</div>`;
+      cardsHtml = `<div class="hand ${isMe && !revealAll ? 'my-hand-src' : ''}">${hand.map(()=>`<span class="hand-card hidden-card">${cardBackSVG()}</span>`).join('')}</div>`;
       if(interactive && forehead && isMe && isTurn && hand.length===1){
         cardsHtml += `<button class="btn-primary mystery-btn" style="margin-top:8px;" onclick="playCard('${match.id}','${pid}','${hand[0].id}')">Gioca la tua carta misteriosa</button>`;
       }
     } else {
       const sorted = [...hand].sort((a,b)=> a.si-b.si || a.ri-b.ri);
       const clickable = interactive && (revealAll || isMe) && isTurn;
-      cardsHtml = `<div class="hand">${sorted.map(c=>
+      cardsHtml = `<div class="hand ${isMe && !revealAll ? 'my-hand-src' : ''}">${sorted.map(c=>
         clickable
           ? (isAssoDenari(c)
               ? `<button class="hand-card ${SUIT_CLASS[c.suit]}" title="${cardLabel(c)}" onclick="chooseAceValue('${match.id}','${pid}','${c.id}')">${cardFrontSVG(c)}</button>`
@@ -12283,7 +12396,7 @@ function renderPredict(match, cards, revealAll, myId){
 
   return `
     <div class="round-banner"><span class="round-badge">Mano ${match.roundIndex+1} · ${cards} cart${cards===1?'a':'e'}</span></div>
-    <h2 style="margin-top:0;">La tua mano</h2>
+    <h2 style="margin-top:0;">${revealAll?'Mani':'Giocatori'}</h2>
     ${renderHandsBlock(match, cards, revealAll, myId, {interactive:false, turnId:null})}
     <h2>Previsioni</h2>
     <p class="hint">Si dichiara in ordine, a partire da chi apre questa mano a rotazione. Guarda la tua mano qui sopra prima di dichiarare.</p>
@@ -12535,7 +12648,7 @@ function scala40TableSVG(match, myId){
   const C = tableConfig(n);
   const VB = C.VB, fs = C.fs;
   const cx = VB/2, cy = VB/2, half = C.half, avatarR = C.avatarR;
-  const layout = rectSeatLayout(half, half, n);
+  const layout = tableSeatLayout(half, ids, myId);
 
   let seats = '';
   ids.forEach((pid,i)=>{
@@ -12555,6 +12668,7 @@ function scala40TableSVG(match, myId){
     const lx = Math.max(pillW/2+3, Math.min(VB-pillW/2-3, x));
     const ly = nameY;
 
+    if(layout[i].me){ seats += mySeatMarkerSVG(pid, x, y, avatarR, ''); return; }
     seats += `
       <g data-seat="${pid}">
         ${isTurn?`<circle cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
@@ -12763,8 +12877,8 @@ function renderScala40Match(match, claim){
       ${drawArea}
       <h2>Tavolo</h2>
       ${tavoloHtml}
-      <h2>${revealAll?'Mani':'La tua mano'}</h2>
-      ${handHtml}
+      <h2 class="${revealAll?'':'my-hand-title'}">${revealAll?'Mani':'La tua mano'}</h2>
+      <div class="${revealAll?'':'my-hand-src'}">${handHtml}</div>
       ${stagedHtml}
       ${actionButtons}
     </div>`;
@@ -13059,8 +13173,8 @@ function renderPokerMatch(match, claim){
       <div class="poker-table-layout">
         <div class="poker-table-col">${tableSvg}</div>
         <div class="poker-info-col">
-          <h3 style="margin:10px 0 4px;">${revealAll?'':'La tua mano'}</h3>
-          ${handHtml}
+          <h3 class="${revealAll?'':'my-hand-title'}" style="margin:10px 0 4px;">${revealAll?'':'La tua mano'}</h3>
+          <div class="${revealAll?'':'my-hand-src'}">${handHtml}</div>
           ${actionButtons}
         </div>
       </div>
