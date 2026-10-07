@@ -254,6 +254,12 @@ body.force-share.in-match #sync-panel{display:block !important;}
 .table-hand .hand-card{flex:0 0 auto;filter:drop-shadow(0 3px 5px rgba(0,0,0,.45));}
 .table-hand p.hint{margin:0;pointer-events:none;}
 .cava-stack{position:relative;padding:0;}
+.table-wrap.with-hand > .under-hand{width:100%;box-sizing:border-box;padding:0 18px;margin-top:6px;}
+.table-wrap.with-hand > .under-hand > *{margin-top:6px;margin-bottom:0;}
+.table-wrap.with-hand > .under-hand .predict-btn-row{margin-top:8px;}
+.table-wrap.with-hand > button.under-hand{width:auto;padding:10px 18px;margin:8px auto 0;}
+.bisca-me{display:flex !important;align-items:center;justify-content:center;gap:10px;font-size:14px;color:var(--cream);}
+.bisca-me-pr{font-family:'IBM Plex Mono',monospace;color:#D4AF6A;font-size:13px;}
 /* carta appena pescata: azzurro, diverso dall'oro delle carte giocabili/selezionate */
 /* niente filter qui: Safari (iPhone) ritaglia un elemento con un filter animato
    quando lo si sposta, e la carta alzata restava tagliata in alto */
@@ -1732,6 +1738,9 @@ function activateTableHand(match, claim){
   wrap.appendChild(box);
   box.appendChild(src);
   layoutTableHand(box, wrap);
+  // cio' che serve subito (previsione da dichiarare, prossima presa, le tue
+  // vite...) sale appena sotto la tua mano, senza dover scorrere
+  document.querySelectorAll('#app .under-hand').forEach(el=>{ wrap.appendChild(el); });
 }
 function layoutTableHand(box, wrap){
   const src = box.firstElementChild;
@@ -12371,7 +12380,7 @@ function renderHandsBlock(match, cards, revealAll, myId, opts){
     if(hidden){
       cardsHtml = `<div class="hand ${isMe && !revealAll ? 'my-hand-src' : ''}">${hand.map(()=>`<span class="hand-card hidden-card">${cardBackSVG()}</span>`).join('')}</div>`;
       if(interactive && forehead && isMe && isTurn && hand.length===1){
-        cardsHtml += `<button class="btn-primary mystery-btn" style="margin-top:8px;" onclick="playCard('${match.id}','${pid}','${hand[0].id}')">Gioca la tua carta misteriosa</button>`;
+        cardsHtml += `<button class="btn-primary mystery-btn under-hand" style="margin-top:8px;" onclick="playCard('${match.id}','${pid}','${hand[0].id}')">Gioca la tua carta misteriosa</button>`;
       }
     } else {
       const sorted = [...hand].sort((a,b)=> a.si-b.si || a.ri-b.ri);
@@ -12396,6 +12405,18 @@ function renderHandsBlock(match, cards, revealAll, myId, opts){
   }).join('');
 }
 
+// Bisca: le tue vite e le tue prese/previsione, in una riga sotto le tue carte
+// sul tavolo (il tuo posto non si disegna piu', vedi tableSeatLayout)
+function biscaMyInfoHTML(match, revealAll, myId){
+  if(revealAll || !myId || !match.roundActive.includes(myId)) return '';
+  const me = match.players.find(p=>p.id===myId);
+  const prev = match.previsioni ? match.previsioni[myId] : undefined;
+  const prese = (match.tricksWon && match.tricksWon[myId]) || 0;
+  return `<div class="under-hand bisca-me">
+    <span>Tu</span><span class="lives-dots">${livesDots(me.lives, match.startingLives)}</span>
+    <span class="bisca-me-pr">${prev===undefined ? 'previsione: —' : 'prese '+prese+'/'+prev}</span>
+  </div>`;
+}
 function renderPredict(match, cards, revealAll, myId){
   const target = match.turnOrder.find(id => match.previsioni[id]===undefined);
   const already = match.turnOrder.filter(id=>match.previsioni[id]!==undefined)
@@ -12411,21 +12432,22 @@ function renderPredict(match, cards, revealAll, myId){
       : `<button class="btn-secondary predict-btn" onclick="declarePrevisione('${match.id}','${target}',${v},${cards})">${v}</button>`)
     .join('');
 
-  const inputBlock = canAct ? `
+  const inputBlock = canAct ? `<div class="under-hand">
     <div class="turn-banner">Tocca a <b>${esc(nameOf(match,target))}</b> dichiarare.</div>
     ${forehead && !revealAll ? '<div class="forehead-note">Mano da 1 carta: non conosci la tua carta, dichiara alla cieca.</div>' : ''}
     ${vietato!==null ? `<div class="forehead-note">Sei l'ultimo a dichiarare: non puoi scegliere ${vietato}, farebbe pareggiare esattamente le carte in gioco.</div>` : ''}
     <div class="predict-btn-row">${buttons}</div>
-  ` : `<div class="waiting-banner">In attesa che <b>${esc(nameOf(match,target))}</b> dichiari...</div>`;
+  </div>` : `<div class="under-hand"><div class="waiting-banner">In attesa che <b>${esc(nameOf(match,target))}</b> dichiari...</div></div>`;
 
   return `
     <div class="round-banner"><span class="round-badge">Mano ${match.roundIndex+1} · ${cards} cart${cards===1?'a':'e'}</span></div>
+    ${biscaMyInfoHTML(match, revealAll, myId)}
+    ${inputBlock}
     <h2 style="margin-top:0;">${revealAll?'Mani':'Giocatori'}</h2>
     ${renderHandsBlock(match, cards, revealAll, myId, {interactive:false, turnId:null})}
     <h2>Previsioni</h2>
-    <p class="hint">Si dichiara in ordine, a partire da chi apre questa mano a rotazione. Guarda la tua mano qui sopra prima di dichiarare.</p>
+    <p class="hint">Si dichiara in ordine, a partire da chi apre questa mano a rotazione.</p>
     ${already}
-    ${inputBlock}
   `;
 }
 
@@ -12435,25 +12457,26 @@ function renderPlay(match, cards, revealAll, myId){
   const turnId = resolved ? null : trick.turnOrder[trick.plays.length];
   const forehead = cards===1;
 
-  const continueBlock = resolved ? `
+  const continueBlock = resolved ? `<div class="under-hand">
     <div class="turn-banner">Presa vinta da <b>${esc(nameOf(match,trick.winnerId))}</b>.</div>
     <button class="btn-primary" onclick="continueAfterTrick('${match.id}')">${trick.roundDoneNext ? 'Vedi il risultato della mano' : 'Prossima presa'}</button>
-  ` : '';
+  </div>` : '';
 
-  const aceChoiceBlock = (pendingAceChoice && pendingAceChoice.matchId===match.id) ? `
+  const aceChoiceBlock = (pendingAceChoice && pendingAceChoice.matchId===match.id) ? `<div class="under-hand">
     <div class="turn-banner">Asso di Denari: che valore gli dai?</div>
     <div class="row-btns">
       <button class="btn-secondary" onclick="confirmAceValue('basso')">Meno dell'Asso di Bastoni</button>
       <button class="btn-secondary" onclick="confirmAceValue('alto')">Più del Re di Denari</button>
     </div>
     <button class="btn-danger btn-small" style="margin-top:8px;" onclick="cancelAceChoice()">Annulla</button>
-  ` : '';
+  </div>` : '';
 
   const hands = renderHandsBlock(match, cards, revealAll, myId, {interactive:true, turnId});
 
   return `
     <div class="round-banner"><span class="round-badge">Mano ${match.roundIndex+1} · ${cards} cart${cards===1?'a':'e'} · presa ${trick.plays.length? 'in corso':'nuova'}</span></div>
     ${forehead ? '<div class="forehead-note">Mano da 1 carta: vedi le carte degli altri ma non la tua.</div>' : ''}
+    ${biscaMyInfoHTML(match, revealAll, myId)}
     ${continueBlock}
     ${aceChoiceBlock}
     ${hands}
