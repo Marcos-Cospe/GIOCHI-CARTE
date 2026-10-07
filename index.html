@@ -1204,10 +1204,22 @@ function cardMotionModelBase(match, owners, fromHands, italian, poker){
         owners['D:'+pid] = ((match.faceDown||{})[pid]||[]).filter(Boolean);
       });
       owners.__pile = match.pile||[];
-      return { epoch: match.dealNumber||1, owners, ...poker };
+      return { epoch: match.dealNumber||1, owners, ...poker, silentLeave: ['__pile'] };
     // chi si prende il mazzetto centrale lo riceve dal centro, non dal mazzo
     case 'cavacamisa': fromHands(match.hands); return { epoch: match.dealNumber||1, owners, ...italian, arriveFromPile: true };
-    case 'uno':        fromHands(match.hands); return { epoch: match.dealNumber||1, owners, back: UNO_BACK_IMG, face: c=>unoCardImageHref(c) };
+    // Anche gli scarti si osservano: un bot senza carte buone pesca e gioca
+    // subito la stessa carta, due salvataggi a pochi millisecondi che spesso
+    // arrivano (soprattutto online) in un unico ridisegno. Senza gli scarti
+    // quella carta non risultava mai "in mano" a nessuno e non volava affatto:
+    // ora passa dal mazzo agli scarti e la si fa volare in due tempi, mazzo ->
+    // chi l'ha giocata -> centro (lastActor, vedi cardMotionFly).
+    case 'uno': {
+      fromHands(match.hands);
+      owners.__pile = match.discard||[];
+      const la = match.lastAction;
+      return { epoch: match.dealNumber||1, owners, back: UNO_BACK_IMG, face: c=>unoCardImageHref(c),
+        silentLeave: ['__pile'], lastActor: la && la.type==='play' ? la.playerId : null };
+    }
     case 'scala40': {
       fromHands(match.hands);
       const pile = match.discardPile||[];
@@ -1241,7 +1253,8 @@ function cardMotionTableRect(){
 // anche nome e statistiche spostati verso il bordo.
 function cardMotionSeatRect(owner){
   const g = document.querySelector('#app [data-seat="'+owner+'"]');
-  if(!g) return null;
+  // la pila degli scarti come "proprietario": dove sta disegnata la pila
+  if(!g) return owner==='__pile' ? cardMotionAt('[data-pile]') : null;
   // NON il primo cerchio qualsiasi: puo' essere l'anello "tocca a te",
   // nascosto (display:none) durante la distribuzione manuale, che misura
   // 0x0 in (0,0) e mandava la carta nell'angolo in alto a sinistra.
@@ -1286,6 +1299,25 @@ function activateCardMotion(match, claim){
 function cardMotionFly(mv, model, prevPileTopId, myId){
   const table = cardMotionTableRect();
   if(!table) return;
+  // pescata e giocata arrivate nello stesso ridisegno (vedi il modello di UNO):
+  // la carta va prima coperta dal mazzo a chi l'ha giocata, poi scoperta al centro
+  if(mv.from===null && mv.to==='__pile' && model.lastActor && !model.dealFrom){
+    const deckRect = cardMotionAt('[data-deck]');
+    const seatRect = cardMotionSeatRect(model.lastActor);
+    if(deckRect && seatRect){
+      const destEl = mv.toCard ? document.querySelector('#app [data-card="'+mv.id+'"]') : null;
+      if(destEl){ destEl.style.visibility = 'hidden'; setTimeout(()=>{ destEl.style.visibility = ''; }, 760); }
+      sndCardPlay();
+      flyCardImage(model.back, deckRect, seatRect, { width:32, height:46, duration:0.34, rot0: Math.random()*24-12 });
+      setTimeout(()=>{
+        const from2 = cardMotionSeatRect(model.lastActor) || seatRect;
+        const to2 = destEl ? destEl.getBoundingClientRect() : (cardMotionAt('[data-pile]') || table);
+        sndCardPlay();
+        flyCardImage(model.face(mv.card), from2, to2, { width: destEl ? Math.max(24, Math.min(70, to2.width)) : 32, height: destEl ? Math.max(34, Math.min(100, to2.height)) : 46, duration:0.34, rot0: Math.random()*24-12 });
+      }, 400);
+      return;
+    }
+  }
   const fromDiscard = mv.from===null && !model.dealFrom && (model.arriveFromPile || (prevPileTopId && prevPileTopId===mv.id));
   let fromRect;
   if(mv.from===null && model.dealFrom && model.dealFrom!==mv.to){
@@ -1311,6 +1343,10 @@ function cardMotionFly(mv, model, prevPileTopId, myId){
     img = model.dealFrom ? model.back : model.face(mv.card);
     w = Math.max(24, Math.min(70, toRect.width));
     h = Math.max(34, Math.min(100, toRect.height));
+  } else if(mv.to==='__pile'){
+    // carta finita nella pila ma non in cima (es. piu' carte giocate insieme)
+    toRect = cardMotionSeatRect('__pile') || table;
+    img = model.face(mv.card);
   } else if(mv.to){
     toRect = cardMotionSeatRect(mv.to) || table;
     img = fromDiscard ? model.face(mv.card) : model.back;
