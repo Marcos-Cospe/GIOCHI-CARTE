@@ -249,14 +249,16 @@ body.force-share.in-match #sync-panel{display:block !important;}
 .table-wrap.with-hand{flex-direction:column;align-items:center;}
 .table-hand{position:relative;z-index:2;width:100%;display:flex;justify-content:center;align-items:flex-start;pointer-events:none;}
 .table-hand .my-hand-src{pointer-events:auto;transform-origin:top center;}
-.table-hand .hand,.table-hand .hand-grid6,.table-hand .th-row{display:flex !important;flex-wrap:nowrap !important;gap:0 !important;justify-content:center;margin:0 !important;}
+.table-hand .hand,.table-hand .hand-grid6,.table-hand .th-row{display:flex !important;flex-wrap:nowrap !important;gap:0 !important;justify-content:center;margin:0 !important;overflow:visible !important;padding-top:16px;}
 .table-hand .th-rows{display:flex;flex-direction:column;align-items:center;gap:6px;}
 .table-hand .hand-card{flex:0 0 auto;filter:drop-shadow(0 3px 5px rgba(0,0,0,.45));}
 .table-hand p.hint{margin:0;pointer-events:none;}
 .cava-stack{position:relative;padding:0;}
 /* carta appena pescata: azzurro, diverso dall'oro delle carte giocabili/selezionate */
-@keyframes justDrawnPulse{0%,100%{outline-color:#4FC3F7;filter:drop-shadow(0 0 6px rgba(79,195,247,.85));}50%{outline-color:#B3E5FC;filter:drop-shadow(0 0 12px rgba(79,195,247,1));}}
-.hand-card.just-drawn{outline:3px solid #4FC3F7;outline-offset:1px;border-radius:7px;animation:justDrawnPulse 1s ease-in-out infinite;position:relative;top:-12px;z-index:50 !important;transition:top .2s;}
+/* niente filter qui: Safari (iPhone) ritaglia un elemento con un filter animato
+   quando lo si sposta, e la carta alzata restava tagliata in alto */
+@keyframes justDrawnPulse{0%,100%{box-shadow:0 0 0 3px #4FC3F7,0 0 10px 2px rgba(79,195,247,.65);}50%{box-shadow:0 0 0 3px #B3E5FC,0 0 18px 6px rgba(79,195,247,.95);}}
+.hand-card.just-drawn{border-radius:7px;animation:justDrawnPulse 1s ease-in-out infinite;transform:translateY(-12px) !important;z-index:50 !important;filter:none !important;transition:transform .2s;}
 .cava-stack-n{position:absolute;right:4px;bottom:4px;z-index:3;min-width:22px;height:22px;border-radius:11px;background:#16261F;border:1px solid #D4AF6A;color:#D4AF6A;font:700 12px/20px 'IBM Plex Mono',monospace;text-align:center;}
 /* Distribuzione manuale (mdeal): la partita e' ferma, si tocca solo il tavolo */
 #app.mdeal-on [onclick]:not([data-mdeal]){pointer-events:none;}
