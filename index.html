@@ -1202,10 +1202,11 @@ const UNO_BACK_IMG = 'data:image/svg+xml;utf8,'+encodeURIComponent(
   '<ellipse cx="30" cy="42" rx="21" ry="30" fill="#D5262C" transform="rotate(-18 30 42)"/>'+
   '<text x="30" y="48" text-anchor="middle" font-family="Georgia,serif" font-size="15" font-weight="800" fill="#F4B400" transform="rotate(-18 30 42)">UNO</text></svg>');
 
-// Ventaglio delle carte in mano a un giocatore, sul suo posto al tavolo.
-// Per gli avversari si vedono i dorsi (veri, del mazzo del gioco), per te le
-// tue carte scoperte (opts.faces). Ogni mazzo ha le sue proporzioni: le
-// trevigiane sono alte e strette, le francesi e le UNO piu' larghe.
+// Ventaglio delle carte in mano a un avversario, sul suo posto al tavolo,
+// visto dal retro (dorso vero del mazzo del gioco); opts.faces lo mostra
+// scoperto (Bisca, mano da 1 carta: le carte degli altri si vedono). Ogni
+// mazzo ha le sue proporzioni: trevigiane alte e strette, francesi e UNO
+// piu' larghe.
 const FAN_DECKS = {
   italian: { back: () => CARD_IMG['back'], face: c => cardSrc(c.suit, c.rank), ratio: 0.5 },
   poker:   { back: () => POKER_BACK_IMG,   face: c => scala40ImageHref(c),   ratio: 0.71 },
@@ -1213,6 +1214,8 @@ const FAN_DECKS = {
 };
 function seatFanSVG(x, y, fs, deck, count, opts){
   opts = opts || {};
+  // il tuo posto: niente ventaglio, la tua mano la vedi gia' sotto il tavolo
+  if(opts.mine) return '';
   const D = FAN_DECKS[deck] || FAN_DECKS.italian;
   const faces = Array.isArray(opts.faces) && opts.faces.length ? opts.faces : null;
   const max = faces ? 13 : 9;
@@ -4800,7 +4803,7 @@ function renderTableSVG(match, cards, revealAll, myId){
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         ${dealableHere?`<circle cx="${x}" cy="${y}" r="${avatarR+9}" fill="none" stroke="#D4AF6A" stroke-width="1.4" stroke-dasharray="3,3"><animateTransform attributeName="transform" type="rotate" from="0 ${x} ${y}" to="360 ${x} ${y}" dur="6s" repeatCount="indefinite"/></circle>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':'#3C5A4C')}" stroke-width="${isTurn?2.4:1.8}"/>
-        ${seatFanSVG(x, y, fs, 'italian', cardsLeft, { faces: (cards===1 ? (!isMe && !revealAll) : (isMe && !revealAll)) ? match.hands[pid] : null, scale: isMe?1.15:1 })}
+        ${seatFanSVG(x, y, fs, 'italian', cardsLeft, { faces: (cards===1 && !isMe && !revealAll) ? match.hands[pid] : null, mine: isMe })}
         <circle cx="${x+17*fs}" cy="${y+15*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+17*fs}" y="${y+18.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>
         ${livesDotsSvg}
@@ -4937,7 +4940,7 @@ function renderScopaTableSVG(match, myId){
       <g data-seat="${pid}">
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':(teamTint||'#3C5A4C'))}" stroke-width="${isTurn?2.4:(teamTint?2.2:1.8)}"/>
-        ${seatFanSVG(x, y, fs, 'italian', cardsLeft, { faces: isMe ? match.hands[pid] : null, scale: isMe?1.15:1 })}
+        ${seatFanSVG(x, y, fs, 'italian', cardsLeft, { mine: isMe })}
         <circle cx="${x+17*fs}" cy="${y+15*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+17*fs}" y="${y+18.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>
         ${statSvg}
@@ -5543,7 +5546,7 @@ function renderBriscolaTableSVG(match, myId){
       <g data-seat="${pid}">
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':(teamTint||'#3C5A4C'))}" stroke-width="${isTurn?2.4:(teamTint?2.2:1.8)}"/>
-        ${seatFanSVG(x, y, fs, 'italian', cardsLeft, { faces: isMe ? match.hands[pid] : null, scale: isMe?1.15:1 })}
+        ${seatFanSVG(x, y, fs, 'italian', cardsLeft, { mine: isMe })}
         <circle cx="${x+17*fs}" cy="${y+15*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+17*fs}" y="${y+18.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>
         ${statSvg}
@@ -5926,7 +5929,7 @@ function renderVeciaTableSVG(match, myId){
     const handSvg = isSafe
       ? `<text x="${x}" y="${y+5*fs}" text-anchor="middle" font-size="${15*fs}">✅</text>`
       : `
-        ${seatFanSVG(x, y, fs, 'italian', cardsLeft, { faces: isMe ? match.hands[pid] : null, scale: isMe?1.15:1 })}
+        ${seatFanSVG(x, y, fs, 'italian', cardsLeft, { mine: isMe })}
         <circle cx="${x+17*fs}" cy="${y+15*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+17*fs}" y="${y+18.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>`;
 
@@ -6475,7 +6478,7 @@ function joputaTableSVG(match, myId){
       <g data-seat="${pid}">
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':'#3C5A4C')}" stroke-width="${isTurn?2.4:1.8}" opacity="${done?0.5:1}"/>
-        ${done ? `<text x="${x}" y="${y+5*fs}" text-anchor="middle" font-size="${15*fs}">✅</text>` : `${seatFanSVG(x, y, fs, 'poker', inHand, { faces: isMe ? joputaSortHand(match.hands[pid]||[]) : null, scale: isMe?1.15:1 })}
+        ${done ? `<text x="${x}" y="${y+5*fs}" text-anchor="middle" font-size="${15*fs}">✅</text>` : `${seatFanSVG(x, y, fs, 'poker', inHand, { mine: isMe })}
         <circle cx="${x+17*fs}" cy="${y+15*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+17*fs}" y="${y+18.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${inHand}</text>`}
         <rect x="${lx-pillW/2}" y="${nameY-11*fs}" width="${pillW}" height="${19*fs}" rx="${9.5*fs}" fill="rgba(10,20,16,0.92)" stroke="${isTurn?'#D4AF6A':'#3C5A4C'}" stroke-width="1"/>
@@ -6900,7 +6903,7 @@ function renderCavaCamisaTableSVG(match, myId){
     const handSvg = isSafe
       ? `<text x="${x}" y="${y+5*fs}" text-anchor="middle" font-size="${15*fs}">💀</text>`
       : `
-        ${seatFanSVG(x, y, fs, 'italian', cardsLeft, { stroke: isThrower?'#D4AF6A':'#8C7647', sw: isThrower?1.4:0.7 })}
+        ${seatFanSVG(x, y, fs, 'italian', cardsLeft, { mine: isMe, stroke: isThrower?'#D4AF6A':'#8C7647', sw: isThrower?1.4:0.7 })}
         <circle cx="${x+17*fs}" cy="${y+15*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+17*fs}" y="${y+18.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>`;
 
@@ -11813,7 +11816,7 @@ function unoTableSVG(match, myId){
       <g data-seat="${pid}">
         ${isTurn?`<circle class="turn-ring" cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':'#3C5A4C')}" stroke-width="${isTurn?2.4:1.8}"/>
-        ${seatFanSVG(x, y, fs, 'uno', cardsLeft, { faces: isMe ? match.hands[pid] : null, scale: isMe?1.15:1, stroke: isUnoRisk?'#D5262C':'#8C7647', sw: isUnoRisk?1.4:0.7 })}
+        ${seatFanSVG(x, y, fs, 'uno', cardsLeft, { mine: isMe, stroke: isUnoRisk?'#D5262C':'#8C7647', sw: isUnoRisk?1.4:0.7 })}
         <circle cx="${x+17*fs}" cy="${y+15*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+17*fs}" y="${y+18.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>
         <rect x="${lx-pillW/2}" y="${ly-11*fs}" width="${pillW}" height="${19*fs}" rx="${9.5*fs}" fill="rgba(10,20,16,0.92)" stroke="${isTurn?'#D4AF6A':'#3C5A4C'}" stroke-width="1"/>
@@ -12556,7 +12559,7 @@ function scala40TableSVG(match, myId){
       <g data-seat="${pid}">
         ${isTurn?`<circle cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':'#3C5A4C')}" stroke-width="${isTurn?2.4:1.8}"/>
-        ${seatFanSVG(x, y, fs, 'poker', cardsLeft, { faces: isMe ? scala40SortHand(match.hands[pid]||[]) : null, scale: isMe?1.15:1 })}
+        ${seatFanSVG(x, y, fs, 'poker', cardsLeft, { mine: isMe })}
         <circle cx="${x+17*fs}" cy="${y+15*fs}" r="${7.5*fs}" fill="#16261F" stroke="#D4AF6A" stroke-width="1"/>
         <text x="${x+17*fs}" y="${y+18.5*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9.5*fs}" font-weight="700" fill="#D4AF6A">${cardsLeft}</text>
         <rect x="${lx-pillW/2}" y="${ly-11*fs}" width="${pillW}" height="${19*fs}" rx="${9.5*fs}" fill="rgba(10,20,16,0.92)" stroke="${isTurn?'#D4AF6A':'#3C5A4C'}" stroke-width="1"/>
@@ -12845,7 +12848,7 @@ function pokerTableSVG(match, myId){
       <g data-seat="${pid}" style="${dim?'opacity:0.4;':''}">
         ${isTurn?`<circle cx="${x}" cy="${y}" r="${avatarR+5}" fill="none" stroke="#D4AF6A" stroke-width="2"/>`:''}
         <circle cx="${x}" cy="${y}" r="${avatarR}" fill="${isTurn?'#2C4C3E':(isMe?'#4A2A28':'#223B32')}" stroke="${isTurn?'#D4AF6A':(isMe?'#D98878':'#3C5A4C')}" stroke-width="${isTurn?2.4:1.8}"/>
-        ${(!isFolded && !player.eliminated) ? seatFanSVG(x, y-3*fs, fs*0.9, 'poker', ((match.hands||{})[pid]||[]).length, { faces: isMe ? match.hands[pid] : null, scale: isMe?1.15:1 }) : ''}
+        ${(!isFolded && !player.eliminated) ? seatFanSVG(x, y-3*fs, fs*0.9, 'poker', ((match.hands||{})[pid]||[]).length, { mine: isMe }) : ''}
         <text x="${x}" y="${y+(((match.hands||{})[pid]||[]).length && !isFolded ? 16 : 3.5)*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${8.5*fs}" font-weight="700" fill="#D4AF6A" stroke="#16261F" stroke-width="${2.2*fs}" paint-order="stroke">${player.chips}</text>
         ${isBtn?`<circle cx="${x+avatarR*0.72}" cy="${y-avatarR*0.72}" r="${7*fs}" fill="#F1ECE1" stroke="#16261F" stroke-width="1"/><text x="${x+avatarR*0.72}" y="${y-avatarR*0.72+3*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${8*fs}" font-weight="800" fill="#16261F">D</text>`:''}
         ${bet>0?`<foreignObject x="${x-14*fs}" y="${y+avatarR+3*fs}" width="${28*fs}" height="${28*fs}"><div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;">${pokerChipHTML(bet, 28*fs)}</div></foreignObject>`:''}
