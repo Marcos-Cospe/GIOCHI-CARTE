@@ -33,6 +33,11 @@ file**: `index.html`. Pubblicata su GitHub Pages:
   con Playwright (vedi §6) e guardata su screenshot a dimensione telefono.
 - Le immagini delle carte sono **quelle del proprietario** (`cards/`,
   `cards-poker/`, `cards-uno/`): non sostituirle con disegni propri.
+- **Tieni aggiornato questo file**: dopo ogni modifica importante aggiorna,
+  nello stesso commit, la §2 (stato del progetto, versione di `sw.js`) e la §7
+  (togli i punti risolti, aggiungi quelli nuovi); se cambia una regola o
+  un'architettura, anche §3/§4. Le sessioni nuove non ricordano le precedenti:
+  sanno solo quello che c'è qui e nel codice.
 
 ---
 
