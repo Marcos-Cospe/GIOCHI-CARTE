@@ -373,6 +373,14 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
      rimpicciolire il tabellone fino a renderlo illeggibile. */
   .boardgame-layout{display:flex;flex-direction:row;align-items:flex-start;gap:12px;}
   .boardgame-board-col{flex:0 0 auto;}
+  /* Dama: con la scacchiera affiancata l'elenco mosse va nella colonna larga,
+     non sotto una scacchiera gia' piccola. */
+  .boardgame-board-col .dama-log{display:none;}
+  .dama-log.dama-log-side{display:block;max-width:none;margin:6px 0 0;}
+  .dama-log-side .dama-log-list{max-height:150px;}
+  /* La colonna della scacchiera si stringe sul contenuto e le caselle sono in
+     percentuale: senza una larghezza esplicita la Dama finiva larga 47px. */
+  .boardgame-board-col .dama-board{width:min(calc(100vh - 168px), 46vw);max-width:none !important;}
   /* Nella disposizione della flotta di Battaglia Navale questa colonna
      porta molti piu' pulsanti delle altre schermate (nave, orientamento,
      frecce, conferma tutti insieme apposta, invece che sparsi sopra/sotto
@@ -527,6 +535,17 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
 .bs-miss-new{ animation: bsSplash 550ms ease-out forwards; transform-box: fill-box; transform-origin: center; }
 @keyframes boardSlideIn{ from{ transform:translate(var(--dx,0),var(--dy,0)); } to{ transform:translate(0,0); } }
 .board-slide-in{ animation: boardSlideIn 260ms cubic-bezier(.3,.7,.4,1); }
+.dama-ghost{ opacity:0.32; transform:scale(.8); }
+.dama-ghost-x{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#E57373; font-weight:700; font-size:min(20px, 5vw, 2.4vh); line-height:1; }
+.dama-trail-dot{ width:24%; height:24%; border-radius:50%; background:rgba(212,175,106,.55); }
+.dama-log{ margin:8px auto 0; max-width:min(280px, 90vw, 40vh); font-size:12px; color:#F1ECE1; }
+.dama-log-side{ display:none; }
+.dama-log-title{ font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:#D4AF6A; margin-bottom:3px; }
+.dama-log-list{ max-height:76px; overflow-y:auto; background:rgba(10,20,16,.55); border-radius:6px; padding:4px 8px; }
+.dama-log-row{ padding:1px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.dama-log-row:first-child{ font-weight:700; }
+.dama-log-n{ display:inline-block; min-width:24px; opacity:.6; }
+.dama-log-cap{ color:#E57373; font-weight:700; }
 @keyframes boardPromoteGlow{ 0%{ filter:drop-shadow(0 0 0 rgba(212,175,106,0)); } 40%{ filter:drop-shadow(0 0 9px rgba(212,175,106,.95)); } 100%{ filter:drop-shadow(0 0 0 rgba(212,175,106,0)); } }
 .board-promote-glow{ animation: boardSlideIn 260ms cubic-bezier(.3,.7,.4,1), boardPromoteGlow 900ms ease-out 260ms; }
 .card-fx-flash{ position:absolute; inset:0; background:radial-gradient(circle at 50% 65%, rgba(212,175,106,0.30), rgba(10,20,16,0) 55%); }
@@ -3055,7 +3074,7 @@ function renderCreaSala(){
     ${selectedGame==='joputa' ? `<p class="hint" style="margin-top:8px;">Da 2 a ${JOPUTA_MAX_PLAYERS} giocatori, mazzo doppio da Scala 40 con i jolly. 3 carte coperte, 3 scoperte sopra e 3 in mano; prima di iniziare puoi scambiare mano e scoperte. Si gioca una carta (o più uguali) uguale o più alta, altrimenti si raccoglie la pila; finché c'è il mazzo si torna a 3 in mano. Speciali: 2 azzera, 10 brucia e rigiochi, 7 trasparente, 4 fa saltare il turno, Jolly su tutto (dopo serve un Asso o un Jolly); 4 uguali di fila bruciano. L'ultimo con le carte è il Joputa.</p>` : ''}
     ${selectedGame==='vecia' ? `<p class="hint" style="margin-top:8px;">Da 2 a ${VECIA_MAX_PLAYERS} giocatori. Si pesca a turno una carta coperta dal vicino di sinistra: chi resta con l'unico Fante di Spade spaiato è la Vecia. Partita secca, nessun punteggio.</p>` : ''}
     ${selectedGame==='battaglianavale' ? `<p class="hint" style="margin-top:8px;">Sempre e solo 2 giocatori. Posiziona le tue 5 navi, poi a turno tenta di colpire quelle nascoste dell'avversario. Chi affonda per primo tutta la flotta vince.</p>` : ''}
-    ${selectedGame==='dama' ? `<p class="hint" style="margin-top:8px;">Sempre e solo 2 giocatori. Regole della Dama Italiana: la pedina cattura anche all'indietro ma non può mai catturare una dama, e la cattura è sempre obbligatoria.</p>` : ''}
+    ${selectedGame==='dama' ? `<p class="hint" style="margin-top:8px;">Sempre e solo 2 giocatori. La pedina muove e cattura solo in avanti e non può mai catturare una dama; la dama muove e cattura in tutte le direzioni, anche a distanza. La cattura è sempre obbligatoria (si deve prendere il maggior numero di pezzi).</p>` : ''}
     ${selectedGame==='scacchi' ? `<p class="hint" style="margin-top:8px;">Sempre e solo 2 giocatori. Regole classiche: arrocco, presa al varco, promozione. Si vince con lo scacco matto.</p>` : ''}
     <div id="roulette-options-slot">${selectedGame==='roulette' ? rouletteOptionsPanel() : ''}</div>
     ${selectedGame==='roulette' ? `<p class="hint" style="margin-top:8px;">Da 1 a ${ROULETTE_MAX_PLAYERS} giocatori, ognuno gioca contro il banco con le proprie fiches. Roulette europea, 37 numeri.</p>` : ''}
@@ -3240,6 +3259,7 @@ async function render(force){
     applyScreenTransition('match');
     if(match.game==='roulette') activateRouletteSpinAnimation();
     if(match.game==='battaglianavale') activateBattleshipShotAnimation(match, claim);
+    if(match.game==='dama') activateDamaMoveAnimation(match);
     if(!match.game) activateBiscaDealAnimation(match);
     preloadDeckImages(match.game);
     activateTableHand(match, claim);
@@ -3348,7 +3368,7 @@ function renderSoloSetup(){
       briscola ? `<div id="briscola-options-slot">${briscolaOptionsPanel()}</div><p class="hint">Nei formati a 3 o 4 giocatori, i bot completano automaticamente la formazione.</p>` :
       forza4 ? `<div id="forza4-options-slot">${forza4OptionsPanel()}</div>` :
       battaglianavale ? `<p class="hint" style="margin-top:8px;">Posiziona le tue 5 navi, poi a turno tenta di colpire quelle nascoste del bot. Chi affonda per primo tutta la flotta vince.</p>` :
-      dama ? `<p class="hint" style="margin-top:8px;">Tu (Bianco) contro il bot (Nero). Regole della Dama Italiana: cattura obbligatoria, anche all'indietro, ma la pedina non può mai catturare una dama.</p>` :
+      dama ? `<p class="hint" style="margin-top:8px;">Tu (Bianco) contro il bot (Nero). La pedina muove e cattura solo in avanti e non può catturare una dama; la dama va in tutte le direzioni, anche a distanza. Cattura obbligatoria.</p>` :
       scacchi ? `<p class="hint" style="margin-top:8px;">Tu (Bianco) contro il bot (Nero). Regole classiche: arrocco, presa al varco, promozione, scacco matto.</p>` : `
       <div style="display:flex;align-items:center;gap:14px;margin-top:14px;">
         <span>Numero di bot:</span>
@@ -9563,9 +9583,9 @@ function damaCaptureSequences(board, r, c){
         }
       } else {
         // una pedina normale (non ancora dama) cattura SOLO nel proprio senso di
-        // marcia: la stessa regola delle mosse semplici, non quella distintiva
-        // della dama italiana (che qui abbiamo scelto di non usare). Diventa
-        // libera in ogni direzione solo una volta promossa a dama.
+        // marcia, come nella dama italiana (la presa all'indietro e' della dama
+        // internazionale). Diventa libera in ogni direzione solo una volta
+        // promossa a dama.
         if(dr!==fwd) continue;
         const midR = curR+dr, midC = curC+dc;
         const landR = curR+2*dr, landC = curC+2*dc;
@@ -9692,17 +9712,42 @@ function buildDamaMatch(id, names){
   };
 }
 function damaPlayerForColor(match, color){ return match.players.find(p=>p.color===color); }
-async function damaMakeMove(matchId, playerId, from, toR, toC){
+function damaSquareName(sq){ return 'abcdefgh'[sq.c]+(8-sq.r); }
+// Firma di una mossa: due prese diverse della dama possono partire e finire
+// sulle stesse caselle mangiando pezzi diversi; senza la firma si giocava la
+// prima trovata, non quella scelta (dal bot o dal giocatore).
+function damaMoveSig(o){ return o.path.map(damaSquareName).join(',')+'|'+o.captured.map(damaSquareName).join(','); }
+// Notazione corta: "c3-d4" per lo spostamento, "c3×e5×g7" per una presa
+// (una × per ogni salto, cosi' una presa multipla si legge passo per passo).
+function damaMoveNotation(from, path, captured){
+  return [from].concat(path).map(damaSquareName).join(captured.length ? '×' : '-');
+}
+async function damaMakeMove(matchId, playerId, from, toR, toC, sig){
   const match = await getActiveMatch();
   if(!match || match.id!==matchId || match.phase!=='playing') return;
   const player = match.players.find(p=>p.id===playerId);
   if(!player || player.color!==match.currentColor) return;
   const legal = damaAllLegalMoves(match.board, player.color);
-  const chosen = legal.options.find(o=> o.from.r===from.r && o.from.c===from.c && o.path[o.path.length-1].r===toR && o.path[o.path.length-1].c===toC);
+  const sameEnds = legal.options.filter(o=> o.from.r===from.r && o.from.c===from.c && o.path[o.path.length-1].r===toR && o.path[o.path.length-1].c===toC);
+  const chosen = (sig && sameEnds.find(o=>damaMoveSig(o)===sig)) || sameEnds[0];
   if(!chosen) return;
   const { board:newBoard, becameKing } = damaApplyMove(match.board, chosen);
   match.board = newBoard;
-  match.lastMove = { from: chosen.from, to:{r:toR,c:toC}, captured: chosen.captured.length, becameKing, color: player.color };
+  // Percorso e pezzi mangiati per intero: con solo partenza/arrivo una presa
+  // multipla del bot sembrava una pedina che scivola mentre altre due
+  // spariscono senza spiegazione.
+  match.moveCount = (match.moveCount||0) + 1;
+  match.lastMove = {
+    n: match.moveCount, from: chosen.from, to:{r:toR,c:toC},
+    path: chosen.path.map(q=>({r:q.r,c:q.c})),
+    capturedSq: chosen.captured.map(k=>({r:k.r,c:k.c,king:!!k.king})),
+    captured: chosen.captured.length, becameKing, color: player.color
+  };
+  match.moveLog = (match.moveLog||[]).concat([{
+    n: match.moveCount, color: player.color,
+    txt: damaMoveNotation(chosen.from, chosen.path, chosen.captured),
+    cap: chosen.captured.length, king: becameKing
+  }]).slice(-40);
   const nextColor = damaOpponent(player.color);
   if(damaGameOver(match.board, nextColor)){
     match.phase = 'ended';
@@ -9746,8 +9791,8 @@ async function scheduleDamaBotMove(match){
     if(!b || !b.isBot) return;
     const depth = totPieces<=10 ? 7 : (totPieces<=16 ? 6 : 5);
     const move = damaBotChooseMove(cur.board, cur.currentColor, depth);
-    if(move) await damaMakeMove(cur.id, b.id, move.from, move.path[move.path.length-1].r, move.path[move.path.length-1].c);
-  }, DAMA_BOT_THINK_MS);
+    if(move) await damaMakeMove(cur.id, b.id, move.from, move.path[move.path.length-1].r, move.path[move.path.length-1].c, damaMoveSig(move));
+  }, DAMA_BOT_THINK_MS + damaMoveAnimMs(match.lastMove));
 }
 
 // ============================================================
@@ -13822,7 +13867,7 @@ async function damaCellClick(matchId, myId, r, c){
     const chosen = options.find(o=> o.path[o.path.length-1].r===r && o.path[o.path.length-1].c===c);
     if(chosen){
       damaSelected = null;
-      await damaMakeMove(matchId, myId, chosen.from, r, c);
+      await damaMakeMove(matchId, myId, chosen.from, r, c, damaMoveSig(chosen));
       return;
     }
   }
@@ -13841,7 +13886,11 @@ function damaBoardHTML(match, myId, revealAll){
   const destinations = (canPlay && damaSelected) ? damaLegalOptionsFor(match, player.color, damaSelected.r, damaSelected.c).map(o=>{ const last=o.path[o.path.length-1]; return last.r+'_'+last.c; }) : [];
   const cellSize = 34;
   const lm = match.lastMove;
-  let html = `<div style="display:grid;grid-template-columns:repeat(8,1fr);gap:1px;max-width:min(${8*(cellSize+1)}px, 90vw, 40vh);margin:0 auto;background:#0A1410;padding:4px;border-radius:8px;">`;
+  const lmPath = lm ? (lm.path || [lm.to]) : [];
+  const lmTrail = new Set(lm ? [lm.from].concat(lmPath.slice(0,-1)).map(q=>q.r+'_'+q.c) : []);
+  const lmCaptured = {};
+  if(lm && lm.capturedSq) lm.capturedSq.forEach((k,i)=>{ lmCaptured[k.r+'_'+k.c] = Object.assign({i}, k); });
+  let html = `<div class="dama-board" style="display:grid;grid-template-columns:repeat(8,1fr);gap:1px;max-width:min(${8*(cellSize+1)}px, 90vw, 40vh);margin:0 auto;background:#0A1410;padding:4px;border-radius:8px;">`;
   for(let r=0;r<8;r++){
     for(let c=0;c<8;c++){
       const dark = (r+c)%2===1;
@@ -13850,10 +13899,24 @@ function damaBoardHTML(match, myId, revealAll){
       const isSelectable = dark && selectable.has(r+'_'+c);
       const isDest = dark && destinations.includes(r+'_'+c);
       let bg = dark ? '#3C5A4C' : '#1A2E26';
+      // Partenza, caselle toccate nei salti e arrivo dell'ultima mossa: restano
+      // segnate finche' non si muove di nuovo, per poterla rileggere con calma.
+      const isLmTo = lm && lm.to.r===r && lm.to.c===c;
+      if(dark && (isLmTo || lmTrail.has(r+'_'+c))) bg = '#55765F';
       if(isSelected) bg = '#D4AF6A';
       else if(isDest) bg = '#5C8A6E';
       const clickable = dark && (isSelectable || isDest);
       let pieceHtml = '';
+      const ghost = dark && !piece ? lmCaptured[r+'_'+c] : null;
+      if(ghost){
+        // Pezzo appena mangiato: resta in trasparenza con la croce, cosi' si
+        // vede cosa e' stato preso e da dove.
+        const gCol = lm.color==='W' ? 'B' : 'W';
+        const gf = gCol==='W' ? '#F1ECE1' : '#241812', gr = gCol==='W' ? '#B8A88C' : '#4A3826';
+        pieceHtml = `<div class="dama-ghost" data-dama-ghost="${ghost.i}" style="width:78%;height:78%;border-radius:50%;background:${gf};border:2.5px solid ${gr};position:relative;display:flex;align-items:center;justify-content:center;">${ghost.king?`<span style="font-size:min(${cellSize*0.42}px, 4.725vw, 2.1vh);">♛</span>`:''}<span class="dama-ghost-x">✕</span></div>`;
+      } else if(dark && !piece && lmTrail.has(r+'_'+c) && !(lm.from.r===r && lm.from.c===c)){
+        pieceHtml = `<div class="dama-trail-dot"></div>`;
+      }
       if(piece){
         const fill = piece.color==='W' ? '#F1ECE1' : '#241812';
         const ring = piece.color==='W' ? '#B8A88C' : '#4A3826';
@@ -13864,11 +13927,11 @@ function damaBoardHTML(match, myId, revealAll){
         // responsive e puo' rimpicciolire su schermi stretti). Un wrapper a
         // tutta cella porta il movimento, cosi' il 100% coincide sempre con
         // un passo intero anche se il cerchio dentro e' piu' piccolo.
-        const isLandingSquare = lm && lm.to.r===r && lm.to.c===c;
+        // Il movimento vero (salto per salto) lo fa activateDamaMoveAnimation:
+        // qui c'e' solo il segnaposto da animare.
+        const isLandingSquare = isLmTo;
         if(isLandingSquare){
-          const dx = (lm.from.c - lm.to.c) * 100, dy = (lm.from.r - lm.to.r) * 100;
-          const promoteClass = lm.becameKing ? ' board-promote-glow' : '';
-          pieceHtml = `<div class="board-slide-in${promoteClass}" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;--dx:${dx}%;--dy:${dy}%;">${circle}</div>`;
+          pieceHtml = `<div data-dama-mover style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">${circle}</div>`;
         } else {
           pieceHtml = circle;
         }
@@ -13883,13 +13946,69 @@ function damaLastMoveText(match){
   const m = match.lastMove;
   if(!m) return '';
   const nome = esc(nameOf(match, damaPlayerForColor(match, m.color).id));
-  const colLetters = 'abcdefgh';
-  const fromStr = colLetters[m.from.c]+(8-m.from.r);
-  const toStr = colLetters[m.to.c]+(8-m.to.r);
-  let txt = `${nome} gioca ${fromStr}-${toStr}`;
-  if(m.captured>0) txt += ` (${m.captured} pezz${m.captured===1?'o':'i'} catturat${m.captured===1?'o':'i'})`;
+  const path = m.path || [m.to];
+  const capt = m.capturedSq || [];
+  let txt;
+  if(m.captured>0){
+    const pezzi = capt.length ? capt.map(k=>(k.king?'dama in ':'')+damaSquareName(k)).join(', ') : '';
+    txt = `${nome} mangia ${m.captured===1?'1 pezzo':m.captured+' pezzi'}${pezzi?' ('+pezzi+')':''}: <b>${damaMoveNotation(m.from, path, capt.length?capt:[1])}</b>`;
+  } else {
+    txt = `${nome} muove <b>${damaMoveNotation(m.from, path, [])}</b>`;
+  }
   if(m.becameKing) txt += ' — promossa a dama!';
   return txt;
+}
+// Elenco delle ultime mosse (la piu' recente in alto): se una presa e'
+// sfuggita, si puo' ricostruire cosa e' successo.
+function damaMoveLogHTML(match){
+  const log = match.moveLog || [];
+  if(!log.length) return '';
+  const rows = log.slice().reverse().map(e=>`<div class="dama-log-row${e.cap?' cap':''}"><span class="dama-log-n">${e.n}.</span>${e.color==='W'?'⚪':'⚫'} ${esc(e.txt)}${e.cap?` <span class="dama-log-cap">−${e.cap}</span>`:''}${e.king?' ♛':''}</div>`).join('');
+  return `<div class="dama-log"><div class="dama-log-title">Mosse</div><div class="dama-log-list">${rows}</div></div>`;
+}
+// Durata dell'animazione di una mossa: il bot aspetta che finisca prima di
+// rispondere, altrimenti la sua mossa cancellerebbe quella che stai guardando.
+const DAMA_STEP_MS = 420;
+function damaMoveAnimMs(lm){
+  if(!lm) return 0;
+  const steps = (lm.path || [lm.to]).length;
+  return lm.captured>0 ? steps*DAMA_STEP_MS + 250 : 300;
+}
+// Anima l'ultima mossa una sola volta (i ridisegni successivi, es. quando
+// selezioni una pedina, non la ripetono): la pedina passa per ogni casella
+// del percorso e ogni pezzo mangiato sbiadisce nell'istante in cui viene
+// saltato.
+let damaAnimatedKey = null;
+function activateDamaMoveAnimation(match){
+  const lm = match.lastMove;
+  if(!lm) return;
+  const key = match.id+'|'+(lm.n || JSON.stringify(lm));
+  if(damaAnimatedKey===key) return;
+  damaAnimatedKey = key;
+  const mover = document.querySelector('[data-dama-mover]');
+  if(!mover || !mover.animate) return;
+  const path = lm.path || [lm.to];
+  const pts = [lm.from].concat(path);
+  const total = damaMoveAnimMs(lm) - (lm.captured>0 ? 250 : 0);
+  const frames = pts.map((q,i)=>({
+    transform:`translate(${(q.c-lm.to.c)*100}%, ${(q.r-lm.to.r)*100}%)${(lm.captured>0 && i>0 && i<pts.length-1)?' scale(1.12)':''}`,
+    offset: i/(pts.length-1)
+  }));
+  mover.style.position = 'relative'; mover.style.zIndex = '3';
+  mover.animate(frames, { duration: total, easing: 'ease-in-out' });
+  if(lm.becameKing){
+    const piece = mover.firstElementChild;
+    if(piece) piece.animate([{boxShadow:'0 0 0 0 rgba(212,175,106,0)'},{boxShadow:'0 0 0 6px rgba(212,175,106,.9)'},{boxShadow:'0 0 0 0 rgba(212,175,106,0)'}], { duration: 900, delay: total });
+  }
+  // Il pezzo mangiato al salto i viene superato a meta' del segmento i:
+  // fino ad allora resta pieno, poi sbiadisce nel suo stato "mangiato".
+  const seg = total / Math.max(1, path.length);
+  document.querySelectorAll('[data-dama-ghost]').forEach(g=>{
+    const i = Number(g.dataset.damaGhost);
+    g.animate([{opacity:1, transform:'scale(1)'},{opacity:0.32, transform:'scale(.8)'}], { duration: 260, delay: (i+0.5)*seg, fill:'backwards', easing:'ease-out' });
+    const x = g.querySelector('.dama-ghost-x');
+    if(x) x.animate([{opacity:0},{opacity:0}], { duration: 1, delay: (i+0.5)*seg, fill:'backwards' });
+  });
 }
 function renderDamaMatch(match, claim){
   const myId = claim.type==='seat' ? claim.playerId : null;
@@ -13916,6 +14035,7 @@ function renderDamaMatch(match, claim){
       : 'Tocca a <b>'+esc(nameOf(match,currentPlayer.id))+'</b> — aspetta <button class="refresh-mini" onclick="forceResync()" title="Aggiorna">⟳</button>'
   }</div>`;
   const lastMoveHtml = match.lastMove ? `<div class="turn-banner">${damaLastMoveText(match)}</div>` : '';
+  const moveLogHtml = damaMoveLogHTML(match);
   const pieceCount = { W:0, B:0 };
   Object.values(match.board).forEach(p=>{ if(p) pieceCount[p.color]++; });
   const scoreBar = `<div class="row-pills">
@@ -13926,8 +14046,8 @@ function renderDamaMatch(match, claim){
   return `<div class="card">
     <div class="toolbar"><span>Dama · ${revealAll?'tutti visibili':esc(nameOf(match,myId))}</span><button class="btn-danger btn-small" onclick="abandonMatch()">Abbandona</button></div>
     <div class="boardgame-layout">
-      <div class="boardgame-info-col">${scoreBar}${turnBanner}${lastMoveHtml}</div>
-      <div class="boardgame-board-col">${damaBoardHTML(match, myId, revealAll)}</div>
+      <div class="boardgame-info-col">${scoreBar}${turnBanner}${lastMoveHtml}${moveLogHtml.replace('class="dama-log"','class="dama-log dama-log-side"')}</div>
+      <div class="boardgame-board-col">${damaBoardHTML(match, myId, revealAll)}${moveLogHtml}</div>
     </div>
     <p class="hint" style="margin-top:10px;">Tocca una pedina evidenziata, poi la casella di arrivo. La cattura è obbligatoria quando disponibile.</p>
   </div>`;

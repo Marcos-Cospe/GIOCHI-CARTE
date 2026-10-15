@@ -41,7 +41,7 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 
 ---
 
-## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v45`)
+## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v46`)
 
 **Giochi** (gruppi come in `GAME_CATEGORIES`):
 - *Carte*: Bisca, Scopa (anche Scopone), Briscola, Vecia, Cava Camisa, UNO,
@@ -61,6 +61,13 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 - UNO con le immagini originali; scarico di carte uguali con Annulla/Continua
   accanto al pulsante UNO.
 - Bisca: previsione, vite e "Prossima presa" subito sotto le tue carte.
+- Dama: l'ultima mossa si anima salto per salto (`activateDamaMoveAnimation`,
+  una volta per mossa); partenza/percorso/arrivo restano segnati, i pezzi
+  mangiati restano in trasparenza con la ✕; elenco "Mosse" sotto la
+  scacchiera (`match.moveLog`, ultime 40). Il bot aspetta la fine
+  dell'animazione (`damaMoveAnimMs`) prima di rispondere. In orizzontale la
+  scacchiera ha una larghezza esplicita (prima era larga 47 px) e l'elenco
+  mosse sta nella colonna a sinistra.
 - Scala 40: chi non è aperto può prendere dagli scarti solo se cala 40 punti
   nel turno, altrimenti rimette la carta e pesca dal mazzo.
 
@@ -135,6 +142,12 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 - **Evidenziazione carta pescata** — `drawnHighlightUntil` + `applyDrawnHighlight`
   (classe `.just-drawn`); serve `data-card` sulle carte della mano.
 
+### Dama
+Motore: `damaCaptureSequences`, `damaAllLegalCaptures` (priorità: più pezzi
+→ presa con la dama → più valore), `damaAllLegalMoves` (se c'è una presa è
+obbligatoria), `damaMakeMove(…, sig)` con `damaMoveSig` per giocare
+esattamente la presa scelta. `lastMove` ha `path` e `capturedSq`.
+
 ### Joputa
 Motore autonomo (`buildJoputaMatch`, `joputaCanPlay`, `joputaApplyPlay`,
 `scheduleJoputaBotMove`, `renderJoputaMatch`). Fasi `swap` → `playing` →
@@ -164,6 +177,10 @@ Motore autonomo (`buildJoputaMatch`, `joputaCanPlay`, `joputaApplyPlay`,
   bastano); si pesca fino a 3 finché c'è il mazzo; chi non può gioca raccoglie
   la pila e salta il turno. Scelte mie, da confermare se cambiano idea: inizia
   il primo a sinistra del mazziere; la pila si raccoglie solo se non hai mosse.
+- **Dama**: la pedina muove e cattura solo in avanti e non cattura la dama
+  (come la dama italiana); la dama invece è "volante" (più caselle, prese a
+  distanza), che non è la regola italiana (lì muove di una casella). Chiesto
+  al proprietario se passare alla dama italiana pura: in attesa.
 - **Poker**: il tuo posto resta (fiches, puntata, bottone D); le carte stanno
   sotto il tavolo.
 - **Ventaglio avversari**: massimo 9 dorsi, il numero esatto nel pallino.
@@ -223,6 +240,9 @@ dispatch in `render()` · `stateKeyOf` · esclusione in `packMatch` e
 
 ## 7. Cose da fare / punti aperti
 
+- **Dama**: decidere se la dama resta "volante" o muove di una sola casella
+  (regola italiana ufficiale).
+
 - **Joputa**: le tue 3 carte coperte e 3 scoperte sono ancora nella sezione
   sotto il tavolo; proposto di portarle sul tavolo come la mano.
 - **Ventaglio avversari oltre 9 carte**: proposto di farlo crescere fino a 20.
@@ -234,6 +254,8 @@ dispatch in `render()` · `stateKeyOf` · esclusione in `packMatch` e
   vogliono comunque.
 - **Cava Camisa**: dopo una presa serve un umano che tocchi "Continua"; una
   partita di soli bot si ferma lì (comportamento storico).
+- **Scacchi in orizzontale**: scacchiera larga solo ~130 px (stesso difetto
+  corretto per la Dama con `.dama-board`); da sistemare allo stesso modo.
 - **Schermo orizzontale**: il tavolo resta piccolo (altezza max 50% dello
   schermo), comune a tutti i giochi.
 - **Scala 40 su schermi da 360 px**: sbordo orizzontale di ~7 px già presente
