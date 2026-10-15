@@ -3074,7 +3074,7 @@ function renderCreaSala(){
     ${selectedGame==='joputa' ? `<p class="hint" style="margin-top:8px;">Da 2 a ${JOPUTA_MAX_PLAYERS} giocatori, mazzo doppio da Scala 40 con i jolly. 3 carte coperte, 3 scoperte sopra e 3 in mano; prima di iniziare puoi scambiare mano e scoperte. Si gioca una carta (o più uguali) uguale o più alta, altrimenti si raccoglie la pila; finché c'è il mazzo si torna a 3 in mano. Speciali: 2 azzera, 10 brucia e rigiochi, 7 trasparente, 4 fa saltare il turno, Jolly su tutto (dopo serve un Asso o un Jolly); 4 uguali di fila bruciano. L'ultimo con le carte è il Joputa.</p>` : ''}
     ${selectedGame==='vecia' ? `<p class="hint" style="margin-top:8px;">Da 2 a ${VECIA_MAX_PLAYERS} giocatori. Si pesca a turno una carta coperta dal vicino di sinistra: chi resta con l'unico Fante di Spade spaiato è la Vecia. Partita secca, nessun punteggio.</p>` : ''}
     ${selectedGame==='battaglianavale' ? `<p class="hint" style="margin-top:8px;">Sempre e solo 2 giocatori. Posiziona le tue 5 navi, poi a turno tenta di colpire quelle nascoste dell'avversario. Chi affonda per primo tutta la flotta vince.</p>` : ''}
-    ${selectedGame==='dama' ? `<p class="hint" style="margin-top:8px;">Sempre e solo 2 giocatori. La pedina muove e cattura solo in avanti e non può mai catturare una dama; la dama muove e cattura in tutte le direzioni, anche a distanza. La cattura è sempre obbligatoria (si deve prendere il maggior numero di pezzi).</p>` : ''}
+    ${selectedGame==='dama' ? `<p class="hint" style="margin-top:8px;">Sempre e solo 2 giocatori. La pedina muove e cattura solo in avanti e non può mai catturare una dama; la dama muove e cattura di una casella, avanti e indietro. La cattura è sempre obbligatoria (si deve prendere il maggior numero di pezzi).</p>` : ''}
     ${selectedGame==='scacchi' ? `<p class="hint" style="margin-top:8px;">Sempre e solo 2 giocatori. Regole classiche: arrocco, presa al varco, promozione. Si vince con lo scacco matto.</p>` : ''}
     <div id="roulette-options-slot">${selectedGame==='roulette' ? rouletteOptionsPanel() : ''}</div>
     ${selectedGame==='roulette' ? `<p class="hint" style="margin-top:8px;">Da 1 a ${ROULETTE_MAX_PLAYERS} giocatori, ognuno gioca contro il banco con le proprie fiches. Roulette europea, 37 numeri.</p>` : ''}
@@ -3368,7 +3368,7 @@ function renderSoloSetup(){
       briscola ? `<div id="briscola-options-slot">${briscolaOptionsPanel()}</div><p class="hint">Nei formati a 3 o 4 giocatori, i bot completano automaticamente la formazione.</p>` :
       forza4 ? `<div id="forza4-options-slot">${forza4OptionsPanel()}</div>` :
       battaglianavale ? `<p class="hint" style="margin-top:8px;">Posiziona le tue 5 navi, poi a turno tenta di colpire quelle nascoste del bot. Chi affonda per primo tutta la flotta vince.</p>` :
-      dama ? `<p class="hint" style="margin-top:8px;">Tu (Bianco) contro il bot (Nero). La pedina muove e cattura solo in avanti e non può catturare una dama; la dama va in tutte le direzioni, anche a distanza. Cattura obbligatoria.</p>` :
+      dama ? `<p class="hint" style="margin-top:8px;">Tu (Bianco) contro il bot (Nero). La pedina muove e cattura solo in avanti e non può catturare una dama; la dama muove e cattura di una casella, avanti e indietro. Cattura obbligatoria.</p>` :
       scacchi ? `<p class="hint" style="margin-top:8px;">Tu (Bianco) contro il bot (Nero). Regole classiche: arrocco, presa al varco, promozione, scacco matto.</p>` : `
       <div style="display:flex;align-items:center;gap:14px;margin-top:14px;">
         <span>Numero di bot:</span>
@@ -9564,22 +9564,22 @@ function damaCaptureSequences(board, r, c){
     let foundFurther = false;
     for(const [dr,dc] of DAMA_DIRS){
       if(piece.king){
-        let scanR = curR+dr, scanC = curC+dc;
-        while(damaGet(boardState, scanR, scanC)===null){ scanR+=dr; scanC+=dc; }
-        const enemy = damaGet(boardState, scanR, scanC);
-        if(enemy && enemy.color!==piece.color && !capturedSoFar.some(k=>k.r===scanR&&k.c===scanC)){
-          let landR = scanR+dr, landC = scanC+dc;
-          while(damaGet(boardState, landR, landC)===null){
-            foundFurther = true;
-            const newCaptured = capturedSoFar.concat([{r:scanR,c:scanC,king:enemy.king}]);
-            const newPath = pathSoFar.concat([{r:landR,c:landC}]);
-            const newBoard = Object.assign({}, boardState);
-            newBoard[damaKey(curR,curC)] = null;
-            newBoard[damaKey(scanR,scanC)] = null;
-            newBoard[damaKey(landR,landC)] = piece;
-            explore(landR, landC, newCaptured, newPath, newBoard);
-            landR+=dr; landC+=dc;
-          }
+        // Dama italiana: la dama NON e' volante. Mangia solo il pezzo nella
+        // casella accanto saltando nella casella subito dopo, come la pedina,
+        // ma in tutte e quattro le direzioni e anche le altre dame (scelta del
+        // proprietario: prima andava a distanza come nella dama internazionale).
+        const midR = curR+dr, midC = curC+dc;
+        const landR = curR+2*dr, landC = curC+2*dc;
+        const enemy = damaGet(boardState, midR, midC);
+        if(enemy && enemy.color!==piece.color && damaGet(boardState, landR, landC)===null && !capturedSoFar.some(k=>k.r===midR&&k.c===midC)){
+          foundFurther = true;
+          const newCaptured = capturedSoFar.concat([{r:midR,c:midC,king:enemy.king}]);
+          const newPath = pathSoFar.concat([{r:landR,c:landC}]);
+          const newBoard = Object.assign({}, boardState);
+          newBoard[damaKey(curR,curC)] = null;
+          newBoard[damaKey(midR,midC)] = null;
+          newBoard[damaKey(landR,landC)] = piece;
+          explore(landR, landC, newCaptured, newPath, newBoard);
         }
       } else {
         // una pedina normale (non ancora dama) cattura SOLO nel proprio senso di
@@ -9623,16 +9623,22 @@ function damaAllLegalCaptures(board, color){
   all = all.filter(s=>s.captured.length===maxLen);
   if(all.some(s=>s.isKing)) all = all.filter(s=>s.isKing);
   const maxVal = Math.max(...all.map(s=>damaPieceValue(s.captured)));
-  return all.filter(s=>damaPieceValue(s.captured)===maxVal);
+  all = all.filter(s=>damaPieceValue(s.captured)===maxVal);
+  // Ultima regola della dama italiana: a parita' di tutto, va fatta la presa
+  // che incontra per prima una dama avversaria.
+  const firstKing = s=>{ const i = s.captured.findIndex(k=>k.king); return i<0 ? 99 : i; };
+  const minFirst = Math.min(...all.map(firstKing));
+  return all.filter(s=>firstKing(s)===minFirst);
 }
 function damaSimpleMoves(board, r, c){
   const piece = damaGet(board, r, c);
   if(!piece) return [];
   const moves = [];
   if(piece.king){
+    // una sola casella, avanti o indietro (dama italiana, non volante)
     DAMA_DIRS.forEach(([dr,dc])=>{
-      let nr=r+dr, nc=c+dc;
-      while(damaGet(board,nr,nc)===null){ moves.push({r:nr,c:nc}); nr+=dr; nc+=dc; }
+      const nr=r+dr, nc=c+dc;
+      if(damaGet(board,nr,nc)===null) moves.push({r:nr,c:nc});
     });
   } else {
     const fwd = piece.color==='W' ? -1 : 1;
@@ -13879,6 +13885,13 @@ async function damaCellClick(matchId, myId, r, c){
   }
   await render(true);
 }
+// Corona della dama: disegnata in SVG e in proporzione al pezzo. Il simbolo ♛
+// di prima prendeva il colore del testo (crema) e sulla dama bianca non si
+// vedeva affatto; in piu' restava minuscolo con la scacchiera piccola.
+function damaCrownSVG(color){
+  const fill = color==='W' ? '#241812' : '#D4AF6A';
+  return `<svg viewBox="0 0 24 24" style="width:62%;height:62%;display:block;" aria-label="dama"><path fill="${fill}" d="M3 17.5 1.8 7.5l5.7 4.3L12 4l4.5 7.8 5.7-4.3L21 17.5zM3.2 19h17.6v2.4H3.2z"/></svg>`;
+}
 function damaBoardHTML(match, myId, revealAll){
   const player = myId ? match.players.find(p=>p.id===myId) : null;
   const canPlay = !revealAll && player && player.color===match.currentColor && match.phase==='playing';
@@ -13913,7 +13926,7 @@ function damaBoardHTML(match, myId, revealAll){
         // vede cosa e' stato preso e da dove.
         const gCol = lm.color==='W' ? 'B' : 'W';
         const gf = gCol==='W' ? '#F1ECE1' : '#241812', gr = gCol==='W' ? '#B8A88C' : '#4A3826';
-        pieceHtml = `<div class="dama-ghost" data-dama-ghost="${ghost.i}" style="width:78%;height:78%;border-radius:50%;background:${gf};border:2.5px solid ${gr};position:relative;display:flex;align-items:center;justify-content:center;">${ghost.king?`<span style="font-size:min(${cellSize*0.42}px, 4.725vw, 2.1vh);">♛</span>`:''}<span class="dama-ghost-x">✕</span></div>`;
+        pieceHtml = `<div class="dama-ghost" data-dama-ghost="${ghost.i}" style="width:78%;height:78%;border-radius:50%;background:${gf};border:2.5px solid ${gr};position:relative;display:flex;align-items:center;justify-content:center;">${ghost.king?damaCrownSVG(gCol):''}<span class="dama-ghost-x">✕</span></div>`;
       } else if(dark && !piece && lmTrail.has(r+'_'+c) && !(lm.from.r===r && lm.from.c===c)){
         pieceHtml = `<div class="dama-trail-dot"></div>`;
       }
@@ -13921,7 +13934,7 @@ function damaBoardHTML(match, myId, revealAll){
         const fill = piece.color==='W' ? '#F1ECE1' : '#241812';
         const ring = piece.color==='W' ? '#B8A88C' : '#4A3826';
         const glow = (isSelectable && !isSelected) ? 'box-shadow:0 0 0 3px #D4AF6A, 0 2px 3px rgba(0,0,0,0.4);' : 'box-shadow:0 2px 3px rgba(0,0,0,0.4);';
-        const circle = `<div style="width:78%;height:78%;border-radius:50%;background:${fill};border:2.5px solid ${ring};display:flex;align-items:center;justify-content:center;${glow}">${piece.king?`<span style="font-size:min(${cellSize*0.42}px, 4.725vw, 2.1vh);">♛</span>`:''}</div>`;
+        const circle = `<div style="width:78%;height:78%;border-radius:50%;background:${fill};border:2.5px solid ${ring};display:flex;align-items:center;justify-content:center;${glow}">${piece.king?damaCrownSVG(piece.color):''}</div>`;
         // La pedina appena arrivata scivola dalla casella di partenza a quella
         // di arrivo (percentuali della cella, non pixel fissi: la griglia e'
         // responsive e puo' rimpicciolire su schermi stretti). Un wrapper a
@@ -13946,14 +13959,15 @@ function damaLastMoveText(match){
   const m = match.lastMove;
   if(!m) return '';
   const nome = esc(nameOf(match, damaPlayerForColor(match, m.color).id));
+  const tu = nome==='Tu'; // in partita da solo il tuo nome e' "Tu": "Tu mangi", non "Tu mangia"
   const path = m.path || [m.to];
   const capt = m.capturedSq || [];
   let txt;
   if(m.captured>0){
     const pezzi = capt.length ? capt.map(k=>(k.king?'dama in ':'')+damaSquareName(k)).join(', ') : '';
-    txt = `${nome} mangia ${m.captured===1?'1 pezzo':m.captured+' pezzi'}${pezzi?' ('+pezzi+')':''}: <b>${damaMoveNotation(m.from, path, capt.length?capt:[1])}</b>`;
+    txt = `${nome} ${tu?'mangi':'mangia'} ${m.captured===1?'1 pezzo':m.captured+' pezzi'}${pezzi?' ('+pezzi+')':''}: <b>${damaMoveNotation(m.from, path, capt.length?capt:[1])}</b>`;
   } else {
-    txt = `${nome} muove <b>${damaMoveNotation(m.from, path, [])}</b>`;
+    txt = `${nome} ${tu?'muovi':'muove'} <b>${damaMoveNotation(m.from, path, [])}</b>`;
   }
   if(m.becameKing) txt += ' — promossa a dama!';
   return txt;

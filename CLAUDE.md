@@ -41,7 +41,7 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 
 ---
 
-## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v46`)
+## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v47`)
 
 **Giochi** (gruppi come in `GAME_CATEGORIES`):
 - *Carte*: Bisca, Scopa (anche Scopone), Briscola, Vecia, Cava Camisa, UNO,
@@ -68,6 +68,9 @@ file**: `index.html`. Pubblicata su GitHub Pages:
   dell'animazione (`damaMoveAnimMs`) prima di rispondere. In orizzontale la
   scacchiera ha una larghezza esplicita (prima era larga 47 px) e l'elenco
   mosse sta nella colonna a sinistra.
+- Dama italiana pura: la dama muove e mangia di **una sola casella**, avanti e
+  indietro (non più "volante"); corona disegnata in SVG, visibile anche sulla
+  dama bianca.
 - Scala 40: chi non è aperto può prendere dagli scarti solo se cala 40 punti
   nel turno, altrimenti rimette la carta e pesca dal mazzo.
 
@@ -144,8 +147,8 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 
 ### Dama
 Motore: `damaCaptureSequences`, `damaAllLegalCaptures` (priorità: più pezzi
-→ presa con la dama → più valore), `damaAllLegalMoves` (se c'è una presa è
-obbligatoria), `damaMakeMove(…, sig)` con `damaMoveSig` per giocare
+→ presa con la dama → più valore → prima dama incontrata), `damaAllLegalMoves` (se c'è una presa è
+obbligatoria), `damaSimpleMoves` (dama: una casella), `damaMakeMove(…, sig)` con `damaMoveSig` per giocare
 esattamente la presa scelta. `lastMove` ha `path` e `capturedSq`.
 
 ### Joputa
@@ -177,10 +180,10 @@ Motore autonomo (`buildJoputaMatch`, `joputaCanPlay`, `joputaApplyPlay`,
   bastano); si pesca fino a 3 finché c'è il mazzo; chi non può gioca raccoglie
   la pila e salta il turno. Scelte mie, da confermare se cambiano idea: inizia
   il primo a sinistra del mazziere; la pila si raccoglie solo se non hai mosse.
-- **Dama**: la pedina muove e cattura solo in avanti e non cattura la dama
-  (come la dama italiana); la dama invece è "volante" (più caselle, prese a
-  distanza), che non è la regola italiana (lì muove di una casella). Chiesto
-  al proprietario se passare alla dama italiana pura: in attesa.
+- **Dama** (regola italiana, scelta del proprietario): la pedina muove e
+  cattura solo in avanti e non cattura la dama; la dama muove e cattura di
+  una sola casella, avanti e indietro, e può mangiare le dame. Priorità di
+  presa: più pezzi → con la dama → più dame → prima la dama incontrata.
 - **Poker**: il tuo posto resta (fiches, puntata, bottone D); le carte stanno
   sotto il tavolo.
 - **Ventaglio avversari**: massimo 9 dorsi, il numero esatto nel pallino.
@@ -240,8 +243,9 @@ dispatch in `render()` · `stateKeyOf` · esclusione in `packMatch` e
 
 ## 7. Cose da fare / punti aperti
 
-- **Dama**: decidere se la dama resta "volante" o muove di una sola casella
-  (regola italiana ufficiale).
+- **Dama**: manca la patta. Con poche dame per parte (es. 4 contro 4) una
+  partita può non finire mai (visto tra due bot: 90+ mosse senza prese);
+  proposta: patta dopo N mosse senza prese o con posizione ripetuta.
 
 - **Joputa**: le tue 3 carte coperte e 3 scoperte sono ancora nella sezione
   sotto il tavolo; proposto di portarle sul tavolo come la mano.
