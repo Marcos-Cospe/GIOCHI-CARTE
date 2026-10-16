@@ -13030,7 +13030,11 @@ function pokerTableSVG(match, myId){
   const ids = rotateIdsForMe(match.turnOrder, myId);
   const n = ids.length;
   const C = pokerTableConfig(n);
-  const VBW = C.VBW, VBH = C.VBH, fs = C.fs;
+  // Altezza del disegno calcolata dal posto piu' in alto/basso + la sua
+  // etichetta: con il VBH fisso il nome di chi sta in cima e di chi sta in
+  // fondo (tu) finiva fuori dal disegno, se ne vedeva solo un filo.
+  const VBW = C.VBW, fs = C.fs;
+  const VBH = Math.ceil(2*(C.ry + C.avatarR + 31*fs));
   const cx = VBW/2, cy = VBH/2, rx = C.rx, ry = C.ry, avatarR = C.avatarR;
   const layout = ellipseSeatLayout(rx, ry, n);
 
@@ -13047,7 +13051,9 @@ function pokerTableSVG(match, myId){
     const bet = (match.bets && match.bets[pid]) || 0;
 
     const displayDirY = relY>=0 ? 1 : -1;
-    const nameY = y + displayDirY*(avatarR + 26*fs);
+    // pillola subito fuori dal cerchio (e dall'anello del turno), dalla parte
+    // del bordo; le fiches puntate vanno invece verso il centro
+    const nameY = y + displayDirY*(avatarR + 18*fs);
     let nm = player.name.length>10 ? player.name.slice(0,9)+'…' : player.name;
     let statusTag = player.eliminated ? ' ☠' : (isFolded ? ' (passa)' : (isAllIn ? ' ALL-IN' : ''));
     const label = esc(nm) + (isMe?' (tu)':(player.isBot?' ᴀɪ':'')) + statusTag;
@@ -13055,6 +13061,11 @@ function pokerTableSVG(match, myId){
     const lx = Math.max(pillW/2+3, Math.min(VBW-pillW/2-3, x));
     const ly = nameY;
     const dim = player.eliminated || isFolded;
+    // Puntata verso il centro del tavolo, come al poker vero: sotto il posto
+    // copriva il nome dei giocatori ai lati e "Piatto" per chi sta in cima.
+    const toC = Math.hypot(cx-x, cy-y) || 1;
+    const chipD = avatarR + 16*fs;
+    const chipX = x + (cx-x)/toC*chipD, chipY = y + (cy-y)/toC*chipD;
 
     seats += `
       <g data-seat="${pid}" style="${dim?'opacity:0.4;':''}">
@@ -13063,7 +13074,7 @@ function pokerTableSVG(match, myId){
         ${(!isFolded && !player.eliminated) ? seatFanSVG(x, y-3*fs, fs*0.9, 'poker', ((match.hands||{})[pid]||[]).length, { mine: isMe }) : ''}
         <text x="${x}" y="${y+(((match.hands||{})[pid]||[]).length && !isFolded ? 16 : 3.5)*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${8.5*fs}" font-weight="700" fill="#D4AF6A" stroke="#16261F" stroke-width="${2.2*fs}" paint-order="stroke">${player.chips}</text>
         ${isBtn?`<circle cx="${x+avatarR*0.72}" cy="${y-avatarR*0.72}" r="${7*fs}" fill="#F1ECE1" stroke="#16261F" stroke-width="1"/><text x="${x+avatarR*0.72}" y="${y-avatarR*0.72+3*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${8*fs}" font-weight="800" fill="#16261F">D</text>`:''}
-        ${bet>0?`<foreignObject x="${x-14*fs}" y="${y+avatarR+3*fs}" width="${28*fs}" height="${28*fs}"><div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;">${pokerChipHTML(bet, 28*fs)}</div></foreignObject>`:''}
+        ${bet>0?`<foreignObject x="${chipX-14*fs}" y="${chipY-14*fs}" width="${28*fs}" height="${28*fs}"><div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;">${pokerChipHTML(bet, 28*fs)}</div></foreignObject>`:''}
         <rect x="${lx-pillW/2}" y="${ly-11*fs}" width="${pillW}" height="${19*fs}" rx="${9.5*fs}" fill="rgba(10,20,16,0.92)" stroke="${isTurn?'#D4AF6A':'#3C5A4C'}" stroke-width="1"/>
         <text x="${lx}" y="${ly+3*fs}" text-anchor="middle" font-family="'Fraunces',serif" font-size="${11.5*fs}" font-weight="700" fill="${isTurn?'#D4AF6A':'#F1ECE1'}">${label}</text>
       </g>`;
@@ -13132,7 +13143,7 @@ function pokerTableSVG(match, myId){
         ${cupHolders}
         <ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="url(#feltGradPoker)" stroke="#4A6B5B" stroke-width="2"/>
         ${felttext}
-        <text x="${cx}" y="${cy-58*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9*fs}" fill="#D4AF6A">Piatto: ${pot}</text>
+        <text x="${cx}" y="${cy-51*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9*fs}" font-weight="700" fill="#D4AF6A" stroke="#16261F" stroke-width="${2.2*fs}" paint-order="stroke">Piatto: ${pot}</text>
         <foreignObject x="${cx-80*fs}" y="${cy-48*fs}" width="${160*fs}" height="${104*fs}">
           <div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;justify-content:center;align-items:center;height:100%;">${communityHtml}</div>
         </foreignObject>

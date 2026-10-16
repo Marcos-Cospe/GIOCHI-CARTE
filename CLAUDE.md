@@ -41,7 +41,7 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 
 ---
 
-## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v47`)
+## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v48`)
 
 **Giochi** (gruppi come in `GAME_CATEGORIES`):
 - *Carte*: Bisca, Scopa (anche Scopone), Briscola, Vecia, Cava Camisa, UNO,
@@ -71,6 +71,10 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 - Dama italiana pura: la dama muove e mangia di **una sola casella**, avanti e
   indietro (non più "volante"); corona disegnata in SVG, visibile anche sulla
   dama bianca.
+- Poker: l'altezza del tavolo si calcola dai posti (`VBH` in
+  `pokerTableSVG`), così i nomi di chi sta in cima e in fondo non escono dal
+  disegno; le puntate stanno tra il posto e il centro, non sopra i nomi o
+  sopra "Piatto".
 - Scala 40: chi non è aperto può prendere dagli scarti solo se cala 40 punti
   nel turno, altrimenti rimette la carta e pesca dal mazzo.
 
@@ -185,7 +189,7 @@ Motore autonomo (`buildJoputaMatch`, `joputaCanPlay`, `joputaApplyPlay`,
   una sola casella, avanti e indietro, e può mangiare le dame. Priorità di
   presa: più pezzi → con la dama → più dame → prima la dama incontrata.
 - **Poker**: il tuo posto resta (fiches, puntata, bottone D); le carte stanno
-  sotto il tavolo.
+  sotto il tavolo. Le puntate vanno verso il centro, come al tavolo vero.
 - **Ventaglio avversari**: massimo 9 dorsi, il numero esatto nel pallino.
 - **Niente `filter` animato** sulle carte da evidenziare (ritagli in Safari):
   si usano `box-shadow` e `transform`.
