@@ -247,6 +247,17 @@ body.force-share.in-match #sync-panel{display:block !important;}
 .table-wrap{display:flex;justify-content:center;margin:0 -18px 16px;}
 /* La tua mano in basso sul tavolo (activateTableHand) */
 .table-wrap.with-hand{flex-direction:column;align-items:center;}
+.poker-toolbar{margin-bottom:6px !important;}
+.poker-toolbar span{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.poker-turn{display:flex;flex-direction:column;align-items:center;gap:1px;margin-bottom:6px !important;padding-top:6px !important;padding-bottom:6px !important;}
+.poker-last{font-size:12.5px;font-weight:400;opacity:.85;letter-spacing:0;text-transform:none;}
+.poker-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(0,1fr));gap:6px;margin:4px 0 6px;}
+.poker-actions button{padding:11px 4px;font-size:15px;white-space:nowrap;}
+.poker-raise-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) 64px;gap:5px;}
+.poker-raise-row button{padding:7px 2px !important;font-size:12px !important;white-space:nowrap;}
+.poker-raise-row button.sel{box-shadow:0 0 0 2px #D4AF6A inset;color:#D4AF6A;}
+.poker-raise-row input{width:100%;min-width:0;padding:6px 4px;border-radius:6px;border:1px solid #3C5A4C;background:#16261F;color:#F1ECE1;font-size:14px;text-align:center;}
+.poker-portrait svg{max-height:max(300px, calc(100vh - 405px));width:auto;max-width:100%;}
 .table-hand{position:relative;z-index:2;width:100%;display:flex;justify-content:center;align-items:flex-start;pointer-events:none;}
 .table-hand .my-hand-src{pointer-events:auto;transform-origin:top center;}
 .table-hand .hand,.table-hand .hand-grid6,.table-hand .th-row{display:flex !important;flex-wrap:nowrap !important;gap:0 !important;justify-content:center;margin:0 !important;overflow:visible !important;padding-top:16px;}
@@ -402,7 +413,11 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
   .poker-table-layout{display:flex;flex-direction:row;align-items:flex-start;gap:10px;}
   .poker-table-col{flex:1.2;min-width:0;}
   .poker-table-col .table-wrap{margin:0;}
-  .poker-table-col svg{max-height:30vh;width:auto;}
+  /* era 30vh: il tavolo veniva alto poco piu' di 100px e le carte comuni
+     illeggibili; ora prende tutta l'altezza che resta sotto le due fasce */
+  .poker-table-col svg{max-height:calc(100vh - 150px);width:auto;max-width:100%;}
+  .poker-turn{flex-direction:row !important;justify-content:center;gap:14px !important;}
+  .poker-info-col .hand{overflow:visible !important;padding-top:12px;}
   /* Il margine sottratto e' generoso apposta: sopra a questa riga possono
      esserci una o due fasce di stato (turno, ultima azione, "Showdown!"),
      e la larghezza non e' nota qui — meglio scorrere un po' internamente
@@ -1747,6 +1762,9 @@ function activateManualDeal(match, claim){
 // carte), cambia solo dove stanno.
 function activateTableHand(match, claim){
   if(!claim || claim.type!=='seat') return;
+  // Poker in orizzontale: la mano resta nella colonna di destra, sopra i
+  // pulsanti; sotto il tavolo finiva fuori dallo schermo (altezza ~390px).
+  if(match.game==='poker' && document.querySelector('#app .poker-landscape')) return;
   const src = document.querySelector('#app .my-hand-src');
   const wrap = document.querySelector('#app .table-wrap');
   if(!src || !wrap) return;
@@ -1775,7 +1793,8 @@ function layoutTableHand(box, wrap){
   const ch = cards[0].getBoundingClientRect().height || 74;
   const avail = Math.max(120, box.clientWidth - 16);
   // mai piu' alta di circa un terzo del tavolo (le trevigiane sono alte e strette)
-  const maxScale = Math.max(1, Math.min(1.4, (svgH ? svgH*0.30 : 120) / ch));
+  const inPoker = !!wrap.closest('.poker-table-col');
+  const maxScale = Math.max(1, Math.min(inPoker ? 1.15 : 1.4, (svgH ? svgH*0.30 : 120) / ch));
   const MIN_VISIBLE = 0.34; // quanto resta visibile (e toccabile) di ogni carta coperta dalla successiva
   // ingrandita il piu' possibile (fino a 1.4x), su una riga se ci sta, altrimenti su piu' righe
   let scale = 1, perRow = n;
@@ -3193,6 +3212,21 @@ function restoreScrollState(root, state){
   });
   if(window.scrollY !== state.pageY) window.scrollTo(0, state.pageY);
 }
+// Il tavolo del poker cambia forma con l'orientamento (ovale in piedi in
+// verticale, sdraiato in orizzontale): girando il telefono va ridisegnato,
+// anche se lo stato della partita non e' cambiato.
+(function(){
+  let lastPortrait = window.innerHeight > window.innerWidth, t = null;
+  window.addEventListener('resize', ()=>{
+    clearTimeout(t);
+    t = setTimeout(()=>{
+      const now = window.innerHeight > window.innerWidth;
+      if(now===lastPortrait) return;
+      lastPortrait = now;
+      if(document.querySelector('#app .poker-wrap')){ lastRenderKey = null; render(true); }
+    }, 150);
+  });
+})();
 async function render(force){
   const app = document.getElementById('app');
   // Guardia anti-corsa: se l'utente preme due pulsanti in rapida successione (es.
@@ -13005,14 +13039,20 @@ function pokerCardBack(w,h){
 
 // Tavolo ovale vero (non piu' un rettangolo arrotondato): i posti si
 // dispongono sul perimetro di un'ellisse, come un vero tavolo da poker
-// pieghevole. Il viewBox e' volutamente piu' largo che alto — proprio
-// perche' e' un ovale allungato, e' il gioco che ne approfitta di piu'
-// quando il telefono e' in orizzontale (piu' larghezza disponibile), ma
-// resta comunque un ovale corretto anche in verticale, solo piu' piccolo.
-function pokerTableConfig(n){
-  if(n<=4) return {VBW:580, VBH:330, rx:240, ry:118, avatarR:26, fs:1, centerHalf:44, cardScale:0.86};
-  if(n<=6) return {VBW:620, VBH:350, rx:258, ry:124, avatarR:24, fs:.95, centerHalf:42, cardScale:0.80};
-  return {VBW:660, VBH:370, rx:275, ry:130, avatarR:22, fs:.9, centerHalf:40, cardScale:0.74};
+// pieghevole. Con il telefono in verticale l'ovale e' in piedi (come nelle
+// app di poker per telefono): l'ovale sdraiato, largo quanto lo schermo,
+// restava basso e le carte comuni venivano larghe una ventina di pixel.
+// In orizzontale resta sdraiato, che li' e' la forma che ci sta meglio.
+function pokerIsPortrait(){ return window.innerHeight > window.innerWidth; }
+function pokerTableConfig(n, portrait){
+  if(portrait){
+    if(n<=4) return {VBW:360, rx:146, ry:168, avatarR:24, fs:1, centerHalf:96, cardW:46, cardH:64};
+    if(n<=6) return {VBW:360, rx:146, ry:172, avatarR:22, fs:.95, centerHalf:96, cardW:46, cardH:64};
+    return {VBW:360, rx:146, ry:178, avatarR:20, fs:.9, centerHalf:96, cardW:44, cardH:61};
+  }
+  if(n<=4) return {VBW:580, rx:240, ry:118, avatarR:26, fs:1, centerHalf:72, cardW:38, cardH:53};
+  if(n<=6) return {VBW:620, rx:258, ry:124, avatarR:24, fs:.95, centerHalf:72, cardW:38, cardH:53};
+  return {VBW:660, rx:275, ry:130, avatarR:22, fs:.9, centerHalf:72, cardW:38, cardH:53};
 }
 // Distribuisce n posti sul perimetro di un'ellisse (rx,ry), partendo dal
 // punto piu' basso (theta=0, dove rotateIdsForMe mette sempre "io") e
@@ -13029,37 +13069,59 @@ function ellipseSeatLayout(rx, ry, n){
 function pokerTableSVG(match, myId){
   const ids = rotateIdsForMe(match.turnOrder, myId);
   const n = ids.length;
-  const C = pokerTableConfig(n);
-  // Altezza del disegno calcolata dal posto piu' in alto/basso + la sua
-  // etichetta: con il VBH fisso il nome di chi sta in cima e di chi sta in
-  // fondo (tu) finiva fuori dal disegno, se ne vedeva solo un filo.
+  const portrait = pokerIsPortrait();
+  const C = pokerTableConfig(n, portrait);
   const VBW = C.VBW, fs = C.fs;
-  const VBH = Math.ceil(2*(C.ry + C.avatarR + 31*fs));
-  const cx = VBW/2, cy = VBH/2, rx = C.rx, ry = C.ry, avatarR = C.avatarR;
+  const rx = C.rx, ry = C.ry, avatarR = C.avatarR;
+  const railPad = 22*fs;
   const layout = ellipseSeatLayout(rx, ry, n);
+  const cx = VBW/2;
 
-  let seats = '';
-  ids.forEach((pid,i)=>{
+  // Prima le etichette (dove stanno e quanto sono larghe), poi l'altezza del
+  // disegno calcolata da quello che c'e' davvero: con un'altezza fissa il nome
+  // di chi sta in cima e il tuo in fondo finivano fuori dal disegno.
+  const seatInfo = ids.map((pid,i)=>{
     const {x:relX, y:relY} = layout[i];
-    const x = cx+relX, y = cy+relY;
     const player = match.players.find(p=>p.id===pid);
-    const isTurn = pid===match.currentId && match.phase==='betting';
     const isMe = pid===myId;
-    const isBtn = match.players[match.buttonIdx] && match.players[match.buttonIdx].id===pid;
     const isFolded = match.folded && match.folded[pid];
     const isAllIn = match.allIn && match.allIn[pid];
-    const bet = (match.bets && match.bets[pid]) || 0;
-
-    const displayDirY = relY>=0 ? 1 : -1;
-    // pillola subito fuori dal cerchio (e dall'anello del turno), dalla parte
-    // del bordo; le fiches puntate vanno invece verso il centro
-    const nameY = y + displayDirY*(avatarR + 18*fs);
     let nm = player.name.length>10 ? player.name.slice(0,9)+'…' : player.name;
-    let statusTag = player.eliminated ? ' ☠' : (isFolded ? ' (passa)' : (isAllIn ? ' ALL-IN' : ''));
-    const label = esc(nm) + (isMe?' (tu)':(player.isBot?' ᴀɪ':'')) + statusTag;
+    const statusTag = player.eliminated ? ' ☠' : (isFolded ? ' (passa)' : (isAllIn ? ' ALL-IN' : ''));
+    // "(tu)" solo se il nome non lo dice gia' (da solo ti chiami "Tu": "Tu (tu)")
+    const label = esc(nm) + (isMe?(/^tu$/i.test(player.name.trim())?'':' (tu)'):(player.isBot?' ᴀɪ':'')) + statusTag;
     const pillW = Math.max(52*fs, label.length*7*fs + 16);
-    const lx = Math.max(pillW/2+3, Math.min(VBW-pillW/2-3, x));
-    const ly = nameY;
+    // In verticale chi sta in cima e in fondo ha il nome di fianco, non
+    // sopra/sotto: in altezza non avanza nulla, in larghezza si'.
+    const beside = portrait && Math.abs(relX) < rx*0.45;
+    let relLx, relLy;
+    if(beside){
+      const side = relX < -1 ? -1 : 1;
+      relLx = relX + side*(avatarR + 8*fs + pillW/2);
+      relLy = relY;
+    } else {
+      relLx = relX;
+      relLy = relY + (relY>=0 ? 1 : -1)*(avatarR + 18*fs);
+    }
+    return { pid, player, relX, relY, isMe, isFolded, isAllIn, label, pillW, relLx, relLy };
+  });
+  let top = -(ry + railPad), bottom = ry + railPad;
+  seatInfo.forEach(s=>{
+    top = Math.min(top, s.relY - avatarR - 6*fs, s.relLy - 11*fs);
+    bottom = Math.max(bottom, s.relY + avatarR + 6*fs, s.relLy + 8*fs);
+  });
+  const VBH = Math.ceil(bottom - top + 4);
+  const cy = Math.round(-top + 2);
+
+  let seats = '';
+  seatInfo.forEach((s,i)=>{
+    const { pid, player, isMe, isFolded, label, pillW } = s;
+    const x = cx + s.relX, y = cy + s.relY;
+    const isTurn = pid===match.currentId && match.phase==='betting';
+    const isBtn = match.players[match.buttonIdx] && match.players[match.buttonIdx].id===pid;
+    const bet = (match.bets && match.bets[pid]) || 0;
+    const lx = Math.max(pillW/2+3, Math.min(VBW-pillW/2-3, cx + s.relLx));
+    const ly = cy + s.relLy;
     const dim = player.eliminated || isFolded;
     // Puntata verso il centro del tavolo, come al poker vero: sotto il posto
     // copriva il nome dei giocatori ai lati e "Piatto" per chi sta in cima.
@@ -13085,38 +13147,38 @@ function pokerTableSVG(match, myId){
   const centerHalf = C.centerHalf*fs;
   const flowArrowSvg = curIdx>=0 ? turnFlowArrowSVG(layout, curIdx, nextIdx, cx, cy, fs, avatarR, centerHalf) : '';
 
-  // le carte comuni stanno su due righe (fino a 3 sopra, le ultime 2 sotto) cosi'
-  // possono essere molto piu' grandi di quanto permetterebbe una sola riga da 5;
-  // il poker non ha badge/combinazioni extra al centro come Scala 40, quindi puo'
-  // usare piu' spazio verticale senza avvicinarsi agli avatar.
-  const cardW = 34*fs, cardH = 47*fs;
-  function communityCardImg(c){ return `<img data-card="${c.id}" src="${scala40ImageHref(c)}" style="width:${cardW}px;height:${cardH}px;object-fit:contain;margin:0 2px;" onerror="this.style.opacity=0.15"/>`; }
+  // le carte comuni stanno su due righe (le 3 del flop sopra, turn e river
+  // sotto) cosi' possono essere molto piu' grandi di quanto permetterebbe una
+  // sola riga da 5. Le caselle vuote restano segnate: si vede quante ne
+  // mancano e il tavolo non cambia forma quando arrivano.
+  const cardW = C.cardW*fs, cardH = C.cardH*fs, gap = 4*fs;
   const communityCards = match.community||[];
-  const rigaSopra = communityCards.slice(0,3).map(communityCardImg).join('');
-  const rigaSotto = communityCards.slice(3,5).map(communityCardImg).join('');
-  const communityHtml = communityCards.length
-    ? `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
-         <div style="display:flex;">${rigaSopra}</div>
-         ${rigaSotto ? `<div style="display:flex;">${rigaSotto}</div>` : ''}
-       </div>`
-    : `<span style="color:#6C8078;font-size:${9*fs}px;font-family:'IBM Plex Mono',monospace;">in attesa…</span>`;
+  function slot(k){
+    const c = communityCards[k];
+    if(c) return `<img data-card="${c.id}" src="${scala40ImageHref(c)}" style="width:${cardW}px;height:${cardH}px;object-fit:contain;display:block;border-radius:${3*fs}px;box-shadow:0 2px 4px rgba(0,0,0,.45);" onerror="this.style.opacity=0.15"/>`;
+    return `<div style="width:${cardW-2}px;height:${cardH-2}px;border:1px dashed rgba(212,175,106,.28);border-radius:${4*fs}px;"></div>`;
+  }
+  const rowW = 3*cardW + 2*gap, boxH = 2*cardH + gap;
+  const communityHtml = `<div style="display:flex;flex-direction:column;align-items:center;gap:${gap}px;">
+      <div style="display:flex;gap:${gap}px;">${slot(0)}${slot(1)}${slot(2)}</div>
+      <div style="display:flex;gap:${gap}px;">${slot(3)}${slot(4)}</div>
+    </div>`;
   const pot = pokerTotalPotNow(match);
+  const boxTop = cy - boxH/2 + (portrait ? 6*fs : 0);
 
-  // Scritte "FLOP · TURN · RIVER" stampate sul feltro attorno al centro,
-  // come su un vero tavolo da poker — quattro copie ruotate a raggiera
-  // invece di una singola scritta curva, per restare leggibili anche
-  // piccole (un unico arco lungo sarebbe stato illeggibile su un ovale
-  // cosi' schiacciato).
-  const felttextR = Math.min(rx,ry)*0.62;
-  const felttext = [0,90,180,270].map(ang => {
-    const rad = ang*Math.PI/180;
-    const tx = cx + felttextR*Math.sin(rad), ty = cy - felttextR*Math.cos(rad)*(ry/rx);
-    return `<text x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" text-anchor="middle" font-size="${7*fs}" font-weight="700" letter-spacing="1.5" fill="#4A6B5B" font-family="'IBM Plex Mono',monospace" transform="rotate(${ang} ${tx.toFixed(1)} ${ty.toFixed(1)})">FLOP · TURN · RIVER</text>`;
-  }).join('');
+  // Scritta "FLOP · TURN · RIVER" stampata sul feltro, come su un vero
+  // tavolo: una sola e dritta (le quattro copie ruotate di prima finivano
+  // addosso alle carte, ora che sono grandi, e una era capovolta). In
+  // orizzontale l'altezza non basta: il piatto va a sinistra delle carte,
+  // sopra avrebbe toccato le fiches di chi sta in cima.
+  const felttext = portrait
+    ? `<text x="${cx}" y="${(boxTop + boxH + 14*fs).toFixed(1)}" text-anchor="middle" font-size="${7*fs}" font-weight="700" letter-spacing="1.5" fill="#4A6B5B" font-family="'IBM Plex Mono',monospace">FLOP · TURN · RIVER</text>`
+    : '';
+  const potX = portrait ? cx : cx - rowW/2 - 12*fs;
+  const potY = portrait ? boxTop - 7*fs : cy + 4*fs;
 
   // "Portabicchieri" decorativi lungo il bordo, come su un vero tavolo
   // pieghevole da poker: solo estetica, nessuna interazione.
-  const railPad = 22*fs;
   const cupR = 7*fs;
   let cupHolders = '';
   const cupCount = n<=4 ? 6 : (n<=6 ? 8 : 9);
@@ -13136,16 +13198,16 @@ function pokerTableSVG(match, myId){
       </linearGradient>
     </defs>`;
   return `
-    <div class="table-wrap">
-      <svg viewBox="0 0 ${VBW} ${VBH}" width="100%" style="max-width:560px;aspect-ratio:${(VBW/VBH).toFixed(3)};display:block;height:auto;">
+    <div class="table-wrap poker-wrap ${portrait?'poker-portrait':'poker-landscape'}">
+      <svg viewBox="0 0 ${VBW} ${VBH}" width="100%" style="aspect-ratio:${(VBW/VBH).toFixed(3)};display:block;height:auto;margin:0 auto;">
         ${tableDefs}
         <ellipse cx="${cx}" cy="${cy}" rx="${rx+railPad}" ry="${ry+railPad}" fill="url(#railGradPoker)" stroke="#0A0704" stroke-width="2"/>
         ${cupHolders}
         <ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="url(#feltGradPoker)" stroke="#4A6B5B" stroke-width="2"/>
         ${felttext}
-        <text x="${cx}" y="${cy-51*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${9*fs}" font-weight="700" fill="#D4AF6A" stroke="#16261F" stroke-width="${2.2*fs}" paint-order="stroke">Piatto: ${pot}</text>
-        <foreignObject x="${cx-80*fs}" y="${cy-48*fs}" width="${160*fs}" height="${104*fs}">
-          <div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;justify-content:center;align-items:center;height:100%;">${communityHtml}</div>
+        <text x="${potX.toFixed(1)}" y="${potY.toFixed(1)}" text-anchor="${portrait?'middle':'end'}" font-family="'IBM Plex Mono',monospace" font-size="${10*fs}" font-weight="700" fill="#D4AF6A" stroke="#16261F" stroke-width="${2.2*fs}" paint-order="stroke">Piatto: ${pot}</text>
+        <foreignObject x="${(cx-rowW/2-4).toFixed(1)}" y="${boxTop.toFixed(1)}" width="${(rowW+8).toFixed(1)}" height="${(boxH+2).toFixed(1)}">
+          <div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;justify-content:center;">${communityHtml}</div>
         </foreignObject>
         ${seats}
         ${flowArrowSvg}
@@ -13196,7 +13258,13 @@ function renderPokerMatch(match, claim){
 
   pokerResetRaiseIfNewTurn(match);
   const tableSvg = pokerTableSVG(match, myId);
-  const actionBanner = match.lastAction ? `<div class="turn-banner">${pokerLastActionText(match)}</div>` : '';
+  // Schermata compatta perche' tavolo, carte e pulsanti stiano in uno schermo
+  // di telefono senza scorrere: le fiches di tutti sono gia' sui posti (la
+  // fila di pillole le ripeteva), bui e numero della mano vanno nella barra
+  // in alto e l'ultima azione sta nella stessa fascia del turno.
+  const [sbNow, bbNow] = POKER_BLIND_LEVELS[match.blindLevel];
+  const toolbar = `<div class="toolbar poker-toolbar"><span>Mano ${match.handNumber} · bui ${sbNow}/${bbNow}</span><button class="btn-danger btn-small" onclick="abandonMatch()">Abbandona</button></div>`;
+  const lastTxt = match.lastAction ? pokerLastActionText(match) : '';
 
   if(match.phase==='handEnd'){
     const perdentiIds = match.players.filter(p=>p.chips>=0).map(p=>p.id).filter(id=>!match.winners.some(w=>w.winnerIds.includes(id)));
@@ -13204,26 +13272,26 @@ function renderPokerMatch(match, claim){
     let showdownHtml = '';
     if(match.showdown){
       const rows = Object.entries(match.showdown).map(([pid,val])=>{
-        const cards = match.hands[pid].map(c=>pokerMiniCard(c,32,45)).join('');
+        const cards = match.hands[pid].map(c=>pokerMiniCard(c,26,37)).join('');
         const won = match.winners.some(w=>w.winnerIds.includes(pid));
-        return `<div style="display:flex;align-items:center;gap:8px;margin:6px 0;${won?'background:rgba(212,175,106,0.12);border-radius:8px;padding:4px;':''}">
-          <span style="min-width:70px;">${esc(nameOf(match,pid))}${won?' 🏆':''}</span>
+        // righe basse: con 4 giocatori il riepilogo spingeva "Prossima mano"
+        // sotto il bordo dello schermo
+        return `<div style="display:flex;align-items:center;gap:8px;margin:2px 0;padding:2px 6px;border-radius:8px;${won?'background:rgba(212,175,106,0.14);':''}">
+          <span style="min-width:64px;font-size:14px;">${esc(nameOf(match,pid))}${won?' 🏆':''}</span>
           <div style="display:flex;gap:2px;">${cards}</div>
-          <span class="hint">${TEXAS_CATEGORY_NAMES[val[0]]}</span>
+          <span style="font-size:13px;color:${won?'#D4AF6A':'#A9B8B0'};">${TEXAS_CATEGORY_NAMES[val[0]]}</span>
         </div>`;
       }).join('');
-      showdownHtml = `<div style="margin:10px 0;">${rows}</div>`;
+      showdownHtml = `<div style="margin:6px 0;">${rows}</div>`;
     }
-    return `<div class="card">
-      <div class="toolbar"><span>Poker · ${revealAll?'tutti visibili':esc(nameOf(match,myId))}</span><button class="btn-danger btn-small" onclick="abandonMatch()">Abbandona</button></div>
-      ${pokerScoreBar(match)}
-      <div class="turn-bar mine">Mano conclusa</div>
-      ${actionBanner}
+    return `<div class="card poker-card">
+      ${toolbar}
+      <div class="turn-bar mine poker-turn">Mano conclusa${lastTxt?`<span class="poker-last">${lastTxt}</span>`:''}</div>
       <div class="poker-table-layout">
         <div class="poker-table-col">${tableSvg}</div>
         <div class="poker-info-col">
+          <button class="btn-primary" style="width:100%;margin-top:6px;" onclick="continueAfterPokerHand('${match.id}')">Prossima mano</button>
           ${showdownHtml}
-          <button class="btn-primary" style="width:100%;margin-top:10px;" onclick="continueAfterPokerHand('${match.id}')">Prossima mano</button>
         </div>
       </div>
     </div>`;
@@ -13231,14 +13299,14 @@ function renderPokerMatch(match, claim){
 
   // fase 'betting'
   const isMyTurn = revealAll || match.currentId===myId;
-  const turnBanner = `<div class="turn-bar ${isMyTurn?'mine':''}">${
+  const turnBanner = `<div class="turn-bar poker-turn ${isMyTurn?'mine':''}"><span>${
     isMyTurn
       ? (revealAll ? 'Tocca a <b>'+esc(nameOf(match,match.currentId))+'</b>' : '► TOCCA A TE')
-      : 'Tocca a <b>'+esc(nameOf(match,match.currentId))+'</b> — aspetta <button class="refresh-mini" onclick="forceResync()" title="Aggiorna">⟳</button>'
-  }</div>`;
+      : 'Tocca a <b>'+esc(nameOf(match,match.currentId))+'</b> <button class="refresh-mini" onclick="forceResync()" title="Aggiorna">⟳</button>'
+  }</span>${lastTxt?`<span class="poker-last">${lastTxt}</span>`:''}</div>`;
 
   const myHand = (myId && match.hands[myId]) || [];
-  const handHtml = myHand.length ? `<div class="hand">${myHand.map(c=>pokerMiniCard(c,58,82)).join('')}</div>` : '';
+  const handHtml = myHand.length ? `<div class="hand">${myHand.map(c=>pokerMiniCard(c,56,79)).join('')}</div>` : '';
 
   const canAct = isMyTurn && !revealAll && myId && !match.folded[myId] && !match.allIn[myId];
   const toCall = myId ? (match.currentBet - (match.bets[myId]||0)) : 0;
@@ -13255,34 +13323,30 @@ function renderPokerMatch(match, claim){
     const minRaiseTo = Math.min(maxTotal, match.currentBet + match.minRaise);
     const presets = [
       {label:'Minimo', val: minRaiseTo},
-      {label:'Metà piatto', val: Math.min(maxTotal, match.currentBet + Math.max(match.minRaise, Math.round(pot*0.5)))},
+      {label:'½ piatto', val: Math.min(maxTotal, match.currentBet + Math.max(match.minRaise, Math.round(pot*0.5)))},
       {label:'Piatto', val: Math.min(maxTotal, match.currentBet + Math.max(match.minRaise, pot))},
       {label:'ALL-IN', val: maxTotal}
     ];
-    const presetBtns = presets.map(p=>`<button class="btn-secondary btn-small" onclick="pokerSetRaiseAmount(${p.val})">${p.label} (${p.val})</button>`).join('');
     const raiseVal = pokerRaiseAmount ?? minRaiseTo;
-    actionButtons = `
-      <div class="row-btns" style="flex-wrap:wrap;margin:10px 0;">${foldBtn}${checkOrCallBtn}</div>
-      <div style="margin:8px 0;">
-        <div class="hint">Rilancia a:</div>
-        <div class="row-btns" style="flex-wrap:wrap;margin:6px 0;">${presetBtns}</div>
-        <div style="display:flex;gap:6px;align-items:center;">
-          <input type="number" id="poker-raise-input" value="${raiseVal}" min="${match.currentBet+1}" max="${maxTotal}" style="width:100px;padding:6px;border-radius:6px;border:1px solid #3C5A4C;background:#16261F;color:#F1ECE1;" oninput="pokerRaiseAmount=parseInt(this.value)||${minRaiseTo}">
-          <button class="btn-primary" style="flex:1;" onclick="pokerConfirmRaise('${match.id}','${myId}')">Conferma rilancio</button>
-        </div>
-      </div>`;
+    // Due righe invece di quattro: Passa / Controlla-Paga / Rilancia sulla
+    // prima, la scelta dell'importo (scorciatoie + cifra libera) sulla seconda.
+    // L'importo scelto si legge direttamente sul pulsante "Rilancia a …".
+    const presetBtns = presets.map(p=>`<button class="btn-secondary btn-small${p.val===raiseVal?' sel':''}" onclick="pokerSetRaiseAmount(${p.val})">${p.label}</button>`).join('');
+    const canRaise = maxTotal > match.currentBet;
+    actionButtons = canRaise ? `
+      <div class="poker-actions">${foldBtn}${checkOrCallBtn}<button class="btn-primary" onclick="pokerConfirmRaise('${match.id}','${myId}')">${raiseVal>=maxTotal?'ALL-IN':'Rilancia a'} <b id="poker-raise-label">${raiseVal}</b></button></div>
+      <div class="poker-raise-row">${presetBtns}<input type="number" inputmode="numeric" id="poker-raise-input" value="${raiseVal}" min="${match.currentBet+1}" max="${maxTotal}" oninput="pokerRaiseAmount=parseInt(this.value)||${minRaiseTo}; const l=document.getElementById('poker-raise-label'); if(l) l.textContent=pokerRaiseAmount;"></div>`
+      : `<div class="poker-actions">${foldBtn}${checkOrCallBtn}</div>`;
   }
 
   return `
-    <div class="card">
-      <div class="toolbar"><span>Poker · ${revealAll?'tutti visibili':esc(nameOf(match,myId))}</span><button class="btn-danger btn-small" onclick="abandonMatch()">Abbandona</button></div>
-      ${pokerScoreBar(match)}
+    <div class="card poker-card">
+      ${toolbar}
       ${turnBanner}
-      ${actionBanner}
       <div class="poker-table-layout">
         <div class="poker-table-col">${tableSvg}</div>
         <div class="poker-info-col">
-          <h3 class="${revealAll?'':'my-hand-title'}" style="margin:10px 0 4px;">${revealAll?'':'La tua mano'}</h3>
+          <h3 class="${revealAll?'':'my-hand-title'}" style="margin:6px 0 4px;">${revealAll?'':'La tua mano'}</h3>
           <div class="${revealAll?'':'my-hand-src'}">${handHtml}</div>
           ${actionButtons}
         </div>

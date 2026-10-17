@@ -41,7 +41,7 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 
 ---
 
-## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v48`)
+## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v49`)
 
 **Giochi** (gruppi come in `GAME_CATEGORIES`):
 - *Carte*: Bisca, Scopa (anche Scopone), Briscola, Vecia, Cava Camisa, UNO,
@@ -71,10 +71,15 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 - Dama italiana pura: la dama muove e mangia di **una sola casella**, avanti e
   indietro (non più "volante"); corona disegnata in SVG, visibile anche sulla
   dama bianca.
-- Poker: l'altezza del tavolo si calcola dai posti (`VBH` in
-  `pokerTableSVG`), così i nomi di chi sta in cima e in fondo non escono dal
-  disegno; le puntate stanno tra il posto e il centro, non sopra i nomi o
-  sopra "Piatto".
+- **Poker riorganizzato per il telefono**: in verticale l'ovale è in piedi
+  (`pokerIsPortrait`, `pokerTableConfig(n, portrait)`), carte comuni 3+2 larghe
+  ~45 px con le caselle vuote segnate; niente fila di pillole (le fiches sono
+  sui posti), bui e mano nella barra in alto, ultima azione nella fascia del
+  turno; pulsanti su due righe (Passa / Controlla-Paga / Rilancia a N, poi
+  scorciatoie + cifra). In orizzontale ovale sdraiato e la tua mano nella
+  colonna dei pulsanti. Girando il telefono il tavolo si ridisegna (ascoltatore
+  `resize` prima di `render`). L'altezza del disegno si calcola da posti ed
+  etichette; le puntate stanno tra il posto e il centro.
 - Scala 40: chi non è aperto può prendere dagli scarti solo se cala 40 punti
   nel turno, altrimenti rimette la carta e pesca dal mazzo.
 
@@ -189,7 +194,10 @@ Motore autonomo (`buildJoputaMatch`, `joputaCanPlay`, `joputaApplyPlay`,
   una sola casella, avanti e indietro, e può mangiare le dame. Priorità di
   presa: più pezzi → con la dama → più dame → prima la dama incontrata.
 - **Poker**: il tuo posto resta (fiches, puntata, bottone D); le carte stanno
-  sotto il tavolo. Le puntate vanno verso il centro, come al tavolo vero.
+  sotto il tavolo (in orizzontale nella colonna di destra). Le puntate vanno
+  verso il centro, come al tavolo vero. Orientamento consigliato: **verticale**
+  (carte comuni ~45 px contro ~26 in orizzontale); su iPhone non si può
+  bloccare la rotazione da una PWA, quindi funzionano entrambi.
 - **Ventaglio avversari**: massimo 9 dorsi, il numero esatto nel pallino.
 - **Niente `filter` animato** sulle carte da evidenziare (ritagli in Safari):
   si usano `box-shadow` e `transform`.
