@@ -41,7 +41,7 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 
 ---
 
-## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v49`)
+## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v50`)
 
 **Giochi** (gruppi come in `GAME_CATEGORIES`):
 - *Carte*: Bisca, Scopa (anche Scopone), Briscola, Vecia, Cava Camisa, UNO,
@@ -52,7 +52,10 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 **Funzioni trasversali recenti**:
 - **Mazziere manuale** in tutti i giochi di carte tranne il Black Jack: il
   mazziere tocca i posti per dare le carte, con la regola del giro; pulsante
-  "Dai il resto"; partita ferma finché non ha finito.
+  "Dai il resto"; partita ferma finché non ha finito. Il tuo posto, invisibile
+  durante il gioco, durante la distribuzione appare come disco "Tu" con
+  l'anello, così il mazziere può darsi le carte (nella Bisca mancava del tutto:
+  la mano restava bloccata).
 - **Carte in volo** (pesca, giocata, passaggio) per tutti i giocatori, con il
   dorso del mazzo giusto per ogni gioco; si parte solo a immagine caricata.
 - **La tua mano sul tavolo**, grande, al posto della tua icona; avversari su
