@@ -8331,6 +8331,7 @@ function startPokerHand(match){
   match.roundOrder = ord;
   match.street = 'preflop';
   match.actedThisStreet = {}; activeIds.forEach(id=>match.actedThisStreet[id]=false);
+  match.streetAggressor = null;
   match.phase = 'betting';
   const bbPos = ord.indexOf(bbId);
   match.currentId = n===2 ? ord[0] : ord[(bbPos+1)%n];
@@ -8420,6 +8421,7 @@ function pokerAdvanceStreet(match){
   match.currentBet = 0;
   match.minRaise = POKER_BLIND_LEVELS[match.blindLevel][1];
   match.actedThisStreet = {}; match.roundOrder.forEach(id=>match.actedThisStreet[id]=false);
+  match.streetAggressor = null;
   if(match.street==='preflop'){ pokerDealCommunity(match,3); match.street='flop'; }
   else if(match.street==='flop'){ pokerDealCommunity(match,1); match.street='turn'; }
   else if(match.street==='turn'){ pokerDealCommunity(match,1); match.street='river'; }
@@ -8436,12 +8438,25 @@ function pokerAdvanceAfterAction(match){
   return {ok:true};
 }
 
+// Quante volte ognuno punta/rilancia rispetto a tutte le sue azioni, per
+// tutta la partita: i bot lo usano per non farsi mettere sotto da chi punta
+// sempre (contro di lui una mano media vale di piu').
+function pokerNoteAction(match, pid, aggressive){
+  match.pstats = match.pstats || {};
+  const s = match.pstats[pid] || (match.pstats[pid] = {n:0, a:0});
+  s.n++; if(aggressive) s.a++;
+}
+function pokerAggression(match, pid){
+  const s = (match.pstats||{})[pid] || {n:0, a:0};
+  return (s.a + 1) / (s.n + 3); // ~0.33 finche' non si sa nulla
+}
 async function pokerFold(matchId, pid){
   const match = await getActiveMatch();
   if(!match || match.id!==matchId || match.phase!=='betting' || match.currentId!==pid) return;
   match.folded[pid] = true;
   match.actedThisStreet[pid] = true;
   match.lastAction = { type:'fold', pid };
+  pokerNoteAction(match, pid, false);
   const res = pokerAdvanceAfterAction(match);
   await setActiveMatch(match);
   await render();
@@ -8453,6 +8468,7 @@ async function pokerCheck(matchId, pid){
   if(match.bets[pid] !== match.currentBet) return;
   match.actedThisStreet[pid] = true;
   match.lastAction = { type:'check', pid };
+  pokerNoteAction(match, pid, false);
   pokerAdvanceAfterAction(match);
   await setActiveMatch(match);
   await render();
@@ -8467,6 +8483,7 @@ async function pokerCall(matchId, pid){
   if(p.chips===0) match.allIn[pid] = true;
   match.actedThisStreet[pid] = true;
   match.lastAction = { type:'call', pid, amount: pay };
+  pokerNoteAction(match, pid, false);
   pokerAdvanceAfterAction(match);
   await setActiveMatch(match);
   await render();
@@ -8492,6 +8509,8 @@ async function pokerRaise(matchId, pid, raiseTo){
   }
   match.actedThisStreet[pid] = true;
   match.lastAction = { type: isAllIn?'allin':'raise', pid, amount: target };
+  pokerNoteAction(match, pid, true);
+  match.streetAggressor = pid;
   pokerAdvanceAfterAction(match);
   await setActiveMatch(match);
   await render();
@@ -8523,40 +8542,141 @@ async function maybeSavePokerHistory(match){
 }
 
 // --- Bot Poker -------------------------------------------------------------
-function pokerBotPreflopStrength(hole){
-  const r1 = TEXAS_RANK_VAL[hole[0].rank], r2 = TEXAS_RANK_VAL[hole[1].rank];
-  const hi = Math.max(r1,r2), lo = Math.min(r1,r2);
-  const suited = hole[0].suit === hole[1].suit;
-  const paired = r1===r2;
-  let score = hi*1.3 + lo*0.6;
-  if(paired) score += 14 + hi;
-  if(suited) score += 3;
-  const gap = hi-lo;
-  if(!paired && gap<=4) score += (4-gap)*1.2;
-  return Math.max(0, Math.min(1, score/48));
+// I bot stimano la loro EQUITA' (probabilita' di vincere lo showdown contro
+// gli avversari ancora in mano, con carte ignote casuali) simulando qualche
+// centinaio di finali, e la confrontano con quanto costa restare in gioco.
+// Prima guardavano solo la categoria della mano (una coppia d'assi valeva
+// 0.15 su 1): non puntavano quasi mai e alla prima puntata dell'avversario
+// buttavano via coppie e doppie coppie, cosi' bastava puntare per vincere.
+
+// Valutatore veloce per le simulazioni (texasEvaluateBest crea molte liste
+// ed e' troppo lento per centinaia di prove per mossa): un numero solo, piu'
+// alto = mano migliore. Carta = {r: 2..14, s: 0..3}.
+function pokerFastScore(cards){
+  const rc = new Array(15).fill(0), sc = [0,0,0,0], sm = [0,0,0,0];
+  let mask = 0;
+  for(const c of cards){ rc[c.r]++; sc[c.s]++; sm[c.s] |= (1<<c.r); mask |= (1<<c.r); }
+  const straightHigh = m => {
+    if(m & (1<<14)) m |= 2; // l'asso vale anche 1
+    for(let h=14; h>=5; h--){ const need = 0x1F << (h-4); if((m & need)===need) return h; }
+    return 0;
+  };
+  const pack = (cat, ks) => { let v = cat; for(let i=0;i<5;i++) v = v*16 + (ks[i]||0); return v; };
+  let fs = -1; for(let s=0;s<4;s++) if(sc[s]>=5) fs = s;
+  if(fs>=0){ const sh = straightHigh(sm[fs]); if(sh) return pack(8, [sh]); }
+  let quad=0, trips=[], pairs=[], singles=[];
+  for(let r=14;r>=2;r--){
+    if(rc[r]===4) quad = r; else if(rc[r]===3) trips.push(r); else if(rc[r]===2) pairs.push(r); else if(rc[r]===1) singles.push(r);
+  }
+  if(quad){ const k = [trips[0]||0, pairs[0]||0, singles[0]||0].reduce((a,b)=>Math.max(a,b),0); return pack(7, [quad, k]); }
+  if(trips.length && (trips.length>1 || pairs.length)){ return pack(6, [trips[0], Math.max(trips[1]||0, pairs[0]||0)]); }
+  if(fs>=0){ const ks=[]; for(let r=14;r>=2 && ks.length<5;r--) if(sm[fs] & (1<<r)) ks.push(r); return pack(5, ks); }
+  const sh = straightHigh(mask); if(sh) return pack(4, [sh]);
+  if(trips.length) return pack(3, [trips[0], ...singles.slice(0,2)]);
+  if(pairs.length>=2){ const k = Math.max(pairs[2]||0, singles[0]||0); return pack(2, [pairs[0], pairs[1], k]); }
+  if(pairs.length) return pack(1, [pairs[0], ...singles.slice(0,3)]);
+  return pack(0, singles.slice(0,5));
 }
-function pokerBotStrength(match, pid){
-  const hole = match.hands[pid];
-  if(match.street==='preflop') return pokerBotPreflopStrength(hole);
-  const best = texasEvaluateBest(hole.concat(match.community));
-  return Math.max(0, Math.min(1, best[0]/9 + 0.04));
+const POKER_SUIT_IDX = {};
+function pokerFastCard(c){
+  if(!(c.suit in POKER_SUIT_IDX)) POKER_SUIT_IDX[c.suit] = Object.keys(POKER_SUIT_IDX).length;
+  return { r: TEXAS_RANK_VAL[c.rank], s: POKER_SUIT_IDX[c.suit] };
+}
+// Equita' contro nOpp avversari con carte ignote: quota di piatto vinta in
+// media (i pareggi contano a meta'/terzi...).
+function pokerBotEquity(hole, board, nOpp, iters){
+  const known = hole.concat(board).map(pokerFastCard);
+  const used = new Set(known.map(c=>c.r*4+c.s));
+  const rest = [];
+  for(let s=0;s<4;s++) for(let r=2;r<=14;r++) if(!used.has(r*4+s)) rest.push({r,s});
+  const me = known.slice(0,2), bd = known.slice(2);
+  const needBoard = 5 - bd.length, need = needBoard + 2*nOpp;
+  let won = 0;
+  for(let it=0; it<iters; it++){
+    for(let i=0;i<need;i++){ const j = i + Math.floor(Math.random()*(rest.length-i)); const t = rest[i]; rest[i] = rest[j]; rest[j] = t; }
+    const fullBoard = bd.concat(rest.slice(0, needBoard));
+    const mine = pokerFastScore(me.concat(fullBoard));
+    let best = true, ties = 0;
+    for(let o=0;o<nOpp;o++){
+      const k = needBoard + 2*o;
+      const v = pokerFastScore([rest[k], rest[k+1]].concat(fullBoard));
+      if(v > mine){ best = false; break; }
+      if(v === mine) ties++;
+    }
+    if(best) won += 1/(ties+1);
+  }
+  return won/iters;
+}
+// Ogni bot ha un suo carattere stabile (dal suo id): piu' o meno aggressivo,
+// piu' o meno bluffatore, piu' o meno disposto a pagare.
+function pokerBotStyle(pid){
+  let h = 0; for(const ch of String(pid)) h = (h*31 + ch.charCodeAt(0)) >>> 0;
+  const f = k => ((h >>> (k*5)) % 100) / 100;
+  return { agg: 0.8 + f(0)*0.45, bluff: 0.05 + f(1)*0.10, loose: 0.95 + f(2)*0.25 };
 }
 function pokerBotDecide(match, pid){
   const p = match.players.find(x=>x.id===pid);
   const toCall = match.currentBet - match.bets[pid];
-  const potSize = pokerTotalPotNow(match);
-  let strength = pokerBotStrength(match, pid);
-  strength = Math.max(0, Math.min(1, strength + (Math.random()-0.5)*0.18));
+  const pot = pokerTotalPotNow(match);
+  const nOpp = Math.max(1, pokerPlayersStillInHand(match).length - 1);
+  const eq = pokerBotEquity(match.hands[pid], match.community||[], nOpp, 450);
+  const rel = eq * (nOpp+1);            // 1 = mano nella media del tavolo
+  // forza "da 0 a 1": 0 = mano media del tavolo, 1 = imbattibile. A
+  // differenza di rel vale uguale testa a testa e in tanti (con rel le soglie
+  // per puntare, pensate per 4 giocatori, testa a testa non si raggiungevano).
+  const fair = 1/(nOpp+1);
+  const rs = (eq - fair) / (1 - fair);
+  const st = pokerBotStyle(pid);
+  const postflop = match.street!=='preflop';
+  const r = Math.random();
+  const size = (a,b) => a + Math.random()*(b-a);
 
   if(toCall<=0){
-    if(strength>0.62 && Math.random()<0.55) return {action:'raise', strength};
+    // nessuno ha puntato: punta per valore, ogni tanto bluffa, se no check
+    if(rs >= 0.3 && r < 0.8*st.agg) return {action:'raise', size: size(0.55,0.9)};
+    if(rs >= 0.1 && r < 0.4*st.agg) return {action:'raise', size: size(0.4,0.65)};
+    if(postflop && rs < -0.1 && r < st.bluff) return {action:'raise', size: size(0.45,0.75)};
     return {action:'check'};
   }
-  const potOdds = toCall / Math.max(1, potSize + toCall);
-  if(strength < 0.28 && strength < potOdds*0.9 && Math.random()<0.85){
+  const allInCall = toCall >= p.chips;
+  // contro chi punta quasi sempre si paga e si rilancia piu' volentieri
+  const aggr = match.streetAggressor ? pokerAggression(match, match.streetAggressor) : 0.33;
+  const adj = Math.max(0, Math.min(1, (aggr - 0.3) / 0.45));
+  let ok;
+  if(!postflop){
+    // Prima del flop l'equita' contro mani a caso e' bassa per tutti (in 4,
+    // la media e' 0.25): si gioca sulla forza RELATIVA, piu' severi quanto
+    // piu' costa entrare (misurato in grandi bui).
+    const bb = POKER_BLIND_LEVELS[match.blindLevel][1];
+    const tbb = toCall / bb;
+    const needRel = allInCall ? 1.6 : (tbb<=1 ? 0.7 : tbb<=3 ? 0.9 : tbb<=6 ? 1.1 : tbb<=15 ? 1.35 : 1.6);
+    ok = rel >= needRel * (1 - 0.35*adj) / st.loose;
+  } else {
+    // Dopo il flop: conviene pagare se l'equita' supera la quota del piatto
+    // da mettere (un po' di prudenza: chi punta di solito ha qualcosa).
+    const potOdds = toCall / (pot + toCall);
+    let need = potOdds * (allInCall ? 1.15 : 1.1);
+    if(adj>0){
+      // Contro chi punta a ogni carta non basta la quota di questa puntata:
+      // la prossima arrivera' comunque. Pagando fino in fondo puntate grandi
+      // quanto il piatto serve circa il 47% al flop, il 43% al turn (testa a
+      // testa; in piu' giocatori la media si abbassa), al river la quota.
+      const left = match.street==='flop' ? 2 : (match.street==='turn' ? 1 : 0);
+      const hu = 2/(nOpp+1);
+      const maniacNeed = allInCall ? potOdds : (left===2 ? 0.47*hu : left===1 ? 0.43*hu : potOdds*0.95);
+      need = need*(1-adj) + maniacNeed*adj;
+    }
+    ok = eq >= need / st.loose;
+  }
+  if(!ok){
+    // non tutto si butta: ogni tanto si paga lo stesso con un po' di
+    // equita', o si rilancia di bluff (cosi' puntare sempre non vince sempre)
+    if(!allInCall && postflop && r < st.bluff*0.5) return {action:'raise', size: size(0.6,0.9)};
+    if(!allInCall && r < 0.15 && eq > 0.15) return {action:'call'};
     return {action:'fold'};
   }
-  if(strength>0.72 && Math.random()<0.55) return {action:'raise', strength};
+  if(rs >= 0.5 - 0.15*adj && r < (0.6 + 0.3*adj)*st.agg) return {action:'raise', size: size(0.6,1.0)};
+  if(rs >= 0.3 - 0.1*adj && r < (0.25 + 0.4*adj)*st.agg) return {action:'raise', size: size(0.5,0.8)};
   return {action:'call'};
 }
 async function pokerBotTakeTurn(match, pid){
@@ -8567,8 +8687,8 @@ async function pokerBotTakeTurn(match, pid){
     const p = match.players.find(x=>x.id===pid);
     const maxTotal = match.bets[pid] + p.chips;
     const potSize = pokerTotalPotNow(match);
-    const sizing = decision.strength>0.9 ? 0.9 : (decision.strength>0.78 ? 0.6 : 0.35);
-    let raiseTo = match.currentBet + Math.max(match.minRaise, Math.round(potSize*sizing));
+    // cifre tonde (multipli di 5) come farebbe una persona
+    let raiseTo = match.currentBet + Math.max(match.minRaise, Math.round(potSize*decision.size/5)*5);
     raiseTo = Math.min(raiseTo, maxTotal);
     const res = await pokerRaise(match.id, pid, raiseTo);
     if(!res || !res.ok){

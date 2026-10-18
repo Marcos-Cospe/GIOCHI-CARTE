@@ -41,7 +41,7 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 
 ---
 
-## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v50`)
+## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v51`)
 
 **Giochi** (gruppi come in `GAME_CATEGORIES`):
 - *Carte*: Bisca, Scopa (anche Scopone), Briscola, Vecia, Cava Camisa, UNO,
@@ -85,6 +85,10 @@ file**: `index.html`. Pubblicata su GitHub Pages:
   etichette; le puntate stanno tra il posto e il centro.
 - Scala 40: chi non è aperto può prendere dagli scarti solo se cala 40 punti
   nel turno, altrimenti rimette la carta e pesca dal mazzo.
+- **Bot del Poker rifatti**: decidono sull'equità simulata (vedi §3 Poker).
+  Prima puntavano/rilanciavano nell'1% delle decisioni e chi puntava sempre il
+  piatto vinceva l'85% delle mani; ora 14-16% e chi punta sempre non guadagna
+  più di chi gioca sensato (simulazioni da 900 mani).
 
 ---
 
@@ -162,6 +166,16 @@ Motore: `damaCaptureSequences`, `damaAllLegalCaptures` (priorità: più pezzi
 → presa con la dama → più valore → prima dama incontrata), `damaAllLegalMoves` (se c'è una presa è
 obbligatoria), `damaSimpleMoves` (dama: una casella), `damaMakeMove(…, sig)` con `damaMoveSig` per giocare
 esattamente la presa scelta. `lastMove` ha `path` e `capturedSq`.
+
+### Poker (bot)
+`pokerBotEquity` simula ~450 finali con un valutatore veloce
+(`pokerFastScore`, verificato su 20.000 mani contro `texasEvaluateBest`);
+`pokerBotDecide`: prima del flop forza relativa (`rel`) con soglie in grandi
+bui, dopo il flop equità contro la quota del piatto; per puntare/rilanciare
+`rs` (0 = mano media, 1 = imbattibile). Ogni bot ha un carattere fisso
+(`pokerBotStyle`). `match.pstats` + `pokerAggression` contano quanto punta
+ognuno; contro chi punta quasi sempre i bot pagano fino in fondo con ~47% al
+flop / 43% al turn e rilanciano di più (`streetAggressor`).
 
 ### Joputa
 Motore autonomo (`buildJoputaMatch`, `joputaCanPlay`, `joputaApplyPlay`,
