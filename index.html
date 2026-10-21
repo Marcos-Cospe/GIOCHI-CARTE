@@ -13654,6 +13654,7 @@ function ahStep(puck, pads, dt, events){
   return null;
 }
 function ahMovePad(pid, pd, tx, ty, maxV, dt){
+  if(!(dt > 0) || !isFinite(tx) || !isFinite(ty)){ pd.vx = 0; pd.vy = 0; return; }
   const ox = pd.x, oy = pd.y;
   const dx = tx-pd.x, dy = ty-pd.y, d = Math.hypot(dx,dy), step = maxV*dt;
   if(d <= step){ pd.x = tx; pd.y = ty; } else { pd.x += dx/d*step; pd.y += dy/d*step; }
@@ -13891,9 +13892,15 @@ function ahAdoptFrame(A, f, withMyPads){
 }
 
 // --- Ciclo di gioco ------------------------------------------------------------
+function ahFinite(o){ return isFinite(o.x) && isFinite(o.y) && isFinite(o.vx) && isFinite(o.vy); }
 function ahUpdate(A, dt){
   const m = A.match;
-  if(!m || m.phase!=='playing') return;
+  if(!m || m.phase!=='playing' || !(dt > 0)) return;
+  // rete di sicurezza: un valore non valido (NaN/Infinito) su una manopola
+  // faceva fallire il disegno e fermava il gioco per sempre
+  ['p0','p1'].forEach(pid=>{ if(!ahFinite(A.pads[pid])) A.pads[pid] = ahPadHome(pid); });
+  if(!ahFinite(A.puck)) A.puck = ahServeState(A.owner);
+  if(A.pointer && !(isFinite(A.pointer.x) && isFinite(A.pointer.y))) A.pointer = null;
   const now = ahServerNow();
   // se la scrittura del gol non va a buon fine (rete), non si resta bloccati
   if(A.goalPending && performance.now() - (A.goalPendingAt||0) > 5000){
@@ -13988,8 +13995,15 @@ function ahFrame(ts){
   }
   const dt = Math.min(0.05, Math.max(0, (ts - (A.last||ts))/1000));
   A.last = ts;
-  ahUpdate(A, dt);
-  ahDraw(A);
+  // un errore in un fotogramma non deve fermare il gioco: si rimette a posto
+  // cio' che non torna e si va avanti col fotogramma dopo
+  try{ ahUpdate(A, dt); ahDraw(A); }
+  catch(e){
+    console.error('air hockey', e);
+    ['p0','p1'].forEach(pid=>{ if(!ahFinite(A.pads[pid])) A.pads[pid] = ahPadHome(pid); });
+    if(!ahFinite(A.puck)) A.puck = ahServeState(A.owner);
+    A.pointer = null;
+  }
   A.raf = requestAnimationFrame(ahFrame);
 }
 
@@ -14113,7 +14127,14 @@ function ahBindInput(A, c){
   if(c._ahBound) return;
   c._ahBound = true;
   const toTable = e=>{
-    const r = c.getBoundingClientRect();
+    // Safari continua a mandare i movimenti del dito all'elemento su cui il
+    // tocco e' iniziato anche dopo che e' stato tolto dalla pagina (al gol la
+    // schermata si ridisegna): quell'elemento misura 0x0 e la posizione
+    // diventava Infinito, la manopola spariva e il gioco si fermava.
+    const cur = (AH && AH.canvas && AH.canvas.isConnected) ? AH.canvas : null;
+    if(!cur) return null;
+    const r = cur.getBoundingClientRect();
+    if(r.width < 10 || r.height < 10) return null;
     const tw = 1 + 2*AH_RAIL;
     const unit = r.width / tw;
     let x = (e.clientX - r.left)/unit - AH_RAIL;
@@ -14125,7 +14146,9 @@ function ahBindInput(A, c){
   const move = e=>{
     if(!AH || !AH.myId) return;
     e.preventDefault();
-    AH.pointer = toTable(e);
+    const pt = toTable(e);
+    if(!pt || !isFinite(pt.x) || !isFinite(pt.y)) return;
+    AH.pointer = pt;
     AH.touched = true;
   };
   c.addEventListener('pointerdown', e=>{ try{ c.setPointerCapture(e.pointerId); }catch(_){} move(e); });
@@ -14134,11 +14157,15 @@ function ahBindInput(A, c){
 window.addEventListener('resize', ()=>{ if(AH && AH.canvas && AH.canvas.isConnected){ ahSizeCanvas(AH); AH.bg = null; } });
 
 function activateAirHockey(match, claim){
-  const canvas = document.getElementById('ah-canvas');
+  let canvas = document.getElementById('ah-canvas');
   if(!canvas || match.phase!=='playing') return;
   const myId = claim && claim.type==='seat' ? claim.playerId : null;
   if(!AH || AH.matchId!==match.id || AH.myId!==myId){ ahTeardown(); AH = ahCreate(match, myId); }
   const A = AH;
+  // Al gol render() ricostruisce la schermata: si rimette al suo posto il
+  // canvas di prima invece di usarne uno nuovo, cosi' il tocco in corso (il
+  // dito ancora appoggiato) resta legato a un elemento che e' a schermo.
+  if(A.canvas && A.canvas !== canvas){ canvas.replaceWith(A.canvas); canvas = A.canvas; }
   A.canvas = canvas; A.ctx = canvas.getContext('2d');
   ahSizeCanvas(A); A.bg = null;
   ahBindInput(A, canvas);

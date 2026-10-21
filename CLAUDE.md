@@ -41,7 +41,7 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 
 ---
 
-## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v52`)
+## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v53`)
 
 **Giochi** (gruppi come in `GAME_CATEGORIES`):
 - *Carte*: Bisca, Scopa (anche Scopone), Briscola, Vecia, Cava Camisa, UNO,
@@ -195,6 +195,15 @@ con l'orologio comune (`.info/serverTimeOffset`). Il gol lo scrive chi lo
 subisce (`ahRegisterGoal`). Con un bot in sala lo muove il primo umano.
 Coordinate: larghezza 1, lunghezza `AH_H`=1.6; p0 difende in basso, p1 in
 alto; la vista di p1 è girata.
+**Il canvas è sempre lo stesso elemento**: a ogni `render()` (gol)
+`activateAirHockey` rimette al suo posto quello vecchio. Motivo: Safari manda i
+movimenti del dito all'elemento su cui il tocco è iniziato anche dopo che è
+stato tolto dalla pagina; misurava 0×0, la manopola diventava NaN e il
+disegno (`createRadialGradient`) si bloccava per sempre dopo il primo gol.
+In più: `toTable` misura sempre `AH.canvas`, `ahMovePad` scarta bersagli non
+finiti, `ahUpdate` rimette a casa ciò che non è finito, `ahFrame` non muore
+per un errore (try/catch). Per riprodurre in Chromium: inviare `PointerEvent`
+al canvas staccato.
 
 ### Joputa
 Motore autonomo (`buildJoputaMatch`, `joputaCanPlay`, `joputaApplyPlay`,
