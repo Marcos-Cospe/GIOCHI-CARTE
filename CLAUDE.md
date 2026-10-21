@@ -41,7 +41,7 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 
 ---
 
-## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v55`)
+## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v56`)
 
 **Giochi** (gruppi come in `GAME_CATEGORIES`):
 - *Carte*: Bisca, Scopa (anche Scopone), Briscola, Vecia, Cava Camisa, UNO,
@@ -200,10 +200,19 @@ con l'orologio comune (`.info/serverTimeOffset`). Il gol lo scrive chi lo
 subisce (`ahRegisterGoal`). Con un bot in sala lo muove il primo umano.
 Coordinate: larghezza 1, lunghezza `AH_H`=1.6; p0 difende in basso, p1 in
 alto; la vista di p1 è girata. Bordo disegnato: sponde `AH_RX`, testate
-`AH_RY` (più spesse: c'è il contapunti). Il bot ha una regola per il disco
-in un angolo (si mette dal lato interno e colpisce verso l'angolo) e si
-scosta quando il disco è fermo contro una sponda (`stuckFor`), altrimenti lo
-schiacciava nell'angolo per sempre.
+`AH_RY` (più spesse: c'è il contapunti).
+**Sensibilità del tocco**: la manopola segue il dito in modo uniforme lungo i
+passi di fisica del fotogramma (`A.ptrPrev` → `A.pointer`), quindi la sua
+velocità è quella vera del dito (prima raggiungeva il dito in un passo: scatti
+3-4 volte più veloci del gesto). Il rimbalzo disco/manopola dipende dalla
+forza (`e` da 0,08 a 0,9 tra 0,4 e 2 di velocità d'urto): toccato piano il
+disco si trascina, colpito forte parte. Misure: dito a 0,25 → disco 0,27 (prima
+1,86); dito a 4 → 4,2. Ogni contatto (anche leggero) aggiorna `localHitT`.
+**Disco incastrato**: se resta entro 0,05 dallo stesso punto nella fascia
+`AH_EDGE` lungo le sponde per 1,2 s (anche se vibra) riceve una spinta verso
+il centro; il bot si scosta da 0,6 s. Nell'angolo (stessa fascia) il bot
+aspetta dal lato interno senza spingere (spingere verso l'angolo lo teneva
+schiacciato per sempre: era la causa dei blocchi nelle prove online).
 **Il canvas è sempre lo stesso elemento**: a ogni `render()` (gol)
 `activateAirHockey` rimette al suo posto quello vecchio. Motivo: Safari manda i
 movimenti del dito all'elemento su cui il tocco è iniziato anche dopo che è
@@ -347,6 +356,9 @@ dispatch in `render()` · `stateKeyOf` · esclusione in `packMatch` e
   `index-offline.html`, che nel repository non esiste.
 - Per provare l'online senza Firebase: finto `db` in pagina che inoltra le
   scritture all'altra pagina con ritardo (fatto per l'air hockey).
+- Air hockey bot contro bot: mettere `isBot=true` anche in `localOverrideMatch`
+  (e salvarlo), non solo in `AH.match`: al primo gol la partita si ricarica e
+  la manopola tornerebbe "umana" e ferma.
 - Gli script di prova sono stati scritti di volta in volta e non sono nel
   repository: valutare una cartella `tests/` con i principali (mazziere, voli,
   partite di soli bot, mano sul tavolo).

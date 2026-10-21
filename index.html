@@ -13599,6 +13599,7 @@ const AH_PAD_MAX = 6;        // la tua manopola segue il dito fino a questa velo
 const AH_BOT_MAX = 2.3;      // il bot e' piu' lento di te (6): si puo' battere
 const AH_WALL_E = 0.88, AH_HIT_E = 0.9;
 const AH_GOAL_PAUSE = 1500;  // ms di pausa dopo un gol
+const AH_EDGE = 0.07;        // fascia lungo le sponde in cui un disco fermo viene liberato
 const AH_SEND_MS = 40;       // online: al massimo 25 invii al secondo
 
 function buildAirHockeyMatch(id, names){
@@ -13650,7 +13651,17 @@ function ahStep(puck, pads, dt, events){
       const nx = dx/d, ny = dy/d;
       puck.x = pd.x + nx*min; puck.y = pd.y + ny*min;
       const vn = (puck.vx-pd.vx)*nx + (puck.vy-pd.vy)*ny;
-      if(vn < 0){ puck.vx -= (1+AH_HIT_E)*vn*nx; puck.vy -= (1+AH_HIT_E)*vn*ny; if(events) events.push('hit'); }
+      if(vn < 0){
+        // Rimbalzo che dipende dalla forza del colpo: toccato piano il disco
+        // quasi non rimbalza e resta accanto alla manopola (lo si puo'
+        // accompagnare e trascinare); colpito forte rimbalza pieno. Con il
+        // rimbalzo sempre a 0.9 anche una spinta lieve lo faceva schizzare via.
+        const e = 0.08 + (AH_HIT_E-0.08) * Math.max(0, Math.min(1, (-vn - 0.4) / 1.6));
+        puck.vx -= (1+e)*vn*nx; puck.vy -= (1+e)*vn*ny;
+        // ogni contatto conta (online decide chi comanda il disco); il
+        // suono del colpo solo per i colpi veri, non per il trascinamento
+        if(events) events.push(-vn > 0.4 ? 'hit' : 'touch');
+      }
     }
   }
   // la manopola non deve poter spingere il disco oltre le sponde (succedeva
@@ -13695,16 +13706,19 @@ function ahBotTarget(pid, puck, me, aim){
   const M = flip ? {x:1-me.x, y:AH_H-me.y} : me;
   let tx, ty;
   const reach = AH_PUCK_R + AH_PAD_R;
-  const nearSide = P.x < AH_PUCK_R + 0.1 || P.x > 1 - AH_PUCK_R - 0.1;
-  if(P.y < 0.17 && nearSide && Math.hypot(P.vx, P.vy) < 1){
+  // stessa zona in cui ahUpdate considera il disco incastrato e lo spinge
+  // fuori: se fosse piu' larga, un disco fermo appena fuori da quella zona
+  // resterebbe li' (il bot aspetta, la spinta non arriva)
+  const E = AH_PUCK_R + AH_EDGE;
+  if(P.y < E && (P.x < E || P.x > 1-E) && Math.hypot(P.vx, P.vy) < 1){
     // disco in un angolo: "dietro" al disco non c'e' posto (sarebbe fuori dal
-    // tavolo) e il bot lo schiacciava contro le sponde per sempre. Si porta
-    // dal lato interno e colpisce verso l'angolo: il disco rimbalza fuori.
+    // tavolo) e il bot lo schiacciava contro le sponde per sempre.
     const ix = 0.5 - P.x, iy = AH_H/2 - P.y, il = Math.hypot(ix, iy) || 1;
     const nx = ix/il, ny = iy/il;
-    const inside = (M.x-P.x)*nx + (M.y-P.y)*ny > reach*0.8;
-    if(inside){ tx = P.x - nx*0.06; ty = P.y - ny*0.06; }
-    else { tx = P.x + nx*(reach+0.04); ty = P.y + ny*(reach+0.04); }
+    // aspetta dal lato interno, a distanza: spingerlo verso l'angolo lo
+    // teneva schiacciato contro le sponde; da fermo lo libera la spinta
+    // automatica (piu' avanti) e allora lo si colpisce normalmente
+    tx = P.x + nx*(reach+0.07); ty = P.y + ny*(reach+0.07);
     return flip ? {x:1-tx, y:AH_H-ty} : {x:tx, y:ty};
   }
   if(P.y < AH_H/2 - AH_PUCK_R && (P.vy > -0.6 || P.y < 0.3)){
@@ -13964,7 +13978,13 @@ function ahUpdate(A, dt){
         const t = (frozen || (A.stuckFor||0) > 0.6) ? ahPadHome(pid) : ahBotTarget(pid, near ? A.puck : guess, pd, A.botAim[pid]);
         ahMovePad(pid, pd, t.x, t.y, ahHalfOf(A.puck.y)===pid ? AH_BOT_MAX : AH_BOT_MAX*0.48, h);
       } else if(A.pointer && pid===A.myId){
-        ahMovePad(pid, pd, A.pointer.x, A.pointer.y, AH_PAD_MAX, h);
+        // Il dito si aggiorna ~60 volte al secondo, la fisica 240: invece di
+        // raggiungerlo in un passo e poi stare ferma (uno scatto molto piu'
+        // veloce del gesto: anche un tocco lento faceva partire il disco a
+        // tutta velocita'), la manopola percorre il tratto in modo uniforme
+        // lungo i passi del fotogramma, alla velocita' vera del dito.
+        const from = A.ptrPrev || A.pointer, k = (s+1)/SUB;
+        ahMovePad(pid, pd, from.x + (A.pointer.x-from.x)*k, from.y + (A.pointer.y-from.y)*k, AH_PAD_MAX, h);
       } else { pd.vx = 0; pd.vy = 0; }
     });
     if(frozen) continue;
@@ -13972,7 +13992,7 @@ function ahUpdate(A, dt){
     const pads = [...A.local].map(id=>A.pads[id]);
     const n0 = ev.length;
     const conceded = ahStep(A.puck, pads, h, ev);
-    if(ev.length > n0 && ev.slice(n0).includes('hit')) A.localHitT = ahServerNow();
+    if(ev.length > n0 && ev.slice(n0).some(e=>e==='hit' || e==='touch')) A.localHitT = ahServerNow();
     if(conceded){
       A.puck.vx = 0; A.puck.vy = 0;
       if(authority && A.local.has(conceded)){
@@ -13992,15 +14012,24 @@ function ahUpdate(A, dt){
       if(!A.local.has(half)) ahSendTick(A, true, true); // passaggio di consegne all'altro telefono
     }
   }
+  if(A.pointer) A.ptrPrev = { x:A.pointer.x, y:A.pointer.y };
   if(ev.includes('hit')) ahSound('hit'); else if(ev.includes('wall')) ahSound('wall');
   // disco fermo contro una sponda o in un angolo per piu' di un secondo:
   // una piccola spinta verso il centro (sul tavolo vero lo fa l'aria, o una mano)
-  const pk = A.puck, edge = 0.06;
-  const stuck = !frozen && Math.hypot(pk.vx,pk.vy) < 0.08 && (pk.x < AH_PUCK_R+edge || pk.x > 1-AH_PUCK_R-edge || pk.y < AH_PUCK_R+edge || pk.y > AH_H-AH_PUCK_R-edge);
-  if(stuck && A.local.has(A.owner)){
-    A.stuckFor = (A.stuckFor||0) + dt;
-    if(A.stuckFor > 1.2){ const dx = 0.5-pk.x, dy = (pk.y>AH_H/2 ? AH_H*0.75 : AH_H*0.25)-pk.y, d = Math.hypot(dx,dy)||1; pk.vx = dx/d*0.6; pk.vy = dy/d*0.6; A.stuckFor = 0; }
-  } else A.stuckFor = 0;
+  // "Incastrato" = resta nello stesso punto vicino a una sponda, anche se
+  // vibra: una manopola che lo schiaccia nell'angolo lo fa rimbalzare sul
+  // posto (velocita' non nulla) e con il solo controllo "fermo" restava li'
+  // per sempre.
+  const pk = A.puck, edge = AH_EDGE;
+  const nearEdge = pk.x < AH_PUCK_R+edge || pk.x > 1-AH_PUCK_R-edge || pk.y < AH_PUCK_R+edge || pk.y > AH_H-AH_PUCK_R-edge;
+  if(!frozen && nearEdge && A.local.has(A.owner)){
+    if(!A.stuckPos || Math.hypot(pk.x-A.stuckPos.x, pk.y-A.stuckPos.y) > 0.05){ A.stuckPos = {x:pk.x, y:pk.y}; A.stuckFor = 0; }
+    else A.stuckFor = (A.stuckFor||0) + dt;
+    if(A.stuckFor > 1.2){
+      const dx = 0.5-pk.x, dy = (pk.y>AH_H/2 ? AH_H*0.75 : AH_H*0.25)-pk.y, d = Math.hypot(dx,dy)||1;
+      pk.vx = dx/d*0.9; pk.vy = dy/d*0.9; A.stuckFor = 0; A.stuckPos = null;
+    }
+  } else { A.stuckFor = 0; A.stuckPos = null; }
   const k = Math.exp(-dt/0.08);
   A.renderOff.x *= k; A.renderOff.y *= k;
   A.trail.push({x:A.puck.x, y:A.puck.y}); if(A.trail.length > 6) A.trail.shift();
