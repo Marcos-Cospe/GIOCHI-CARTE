@@ -14217,16 +14217,18 @@ function ahDraw(A){
   // scia del disco
   A.trail.forEach((t,i)=>{
     const v = ahView(A, t.x, t.y);
-    g.fillStyle = 'rgba(200,40,30,'+(0.035*(i+1))+')';
+    g.fillStyle = 'rgba(20,20,20,'+(0.03*(i+1))+')';
     g.beginPath(); g.arc(v.x, v.y, AH_PUCK_R*(0.6+0.06*i), 0, Math.PI*2); g.fill();
   });
-  // disco rosso con gli anelli chiari, come quello vero
+  // disco nero (scelta del proprietario), con un filo di luce sul bordo e
+  // un anello grigio per vederlo girare sul piano bianco
   const pv = ahView(A, px, py), R = AH_PUCK_R;
   g.fillStyle = 'rgba(0,0,0,0.25)'; g.beginPath(); g.arc(pv.x+0.006, pv.y+0.009, R, 0, Math.PI*2); g.fill();
-  g.fillStyle = '#C62E22'; g.beginPath(); g.arc(pv.x, pv.y, R, 0, Math.PI*2); g.fill();
-  g.strokeStyle = '#F6D9D2'; g.lineWidth = R*0.16;
-  g.beginPath(); g.arc(pv.x, pv.y, R*0.68, 0, Math.PI*2); g.stroke();
-  g.beginPath(); g.arc(pv.x, pv.y, R*0.3, 0, Math.PI*2); g.stroke();
+  const pg = g.createRadialGradient(pv.x-R*0.35, pv.y-R*0.4, R*0.1, pv.x, pv.y, R);
+  pg.addColorStop(0,'#4A4A4A'); pg.addColorStop(0.55,'#1E1E1E'); pg.addColorStop(1,'#050505');
+  g.fillStyle = pg; g.beginPath(); g.arc(pv.x, pv.y, R, 0, Math.PI*2); g.fill();
+  g.strokeStyle = 'rgba(255,255,255,0.18)'; g.lineWidth = R*0.1;
+  g.beginPath(); g.arc(pv.x, pv.y, R*0.62, 0, Math.PI*2); g.stroke();
   const meId = A.myId || 'p0';
   ['p0','p1'].forEach(pid=>{
     const v = ahView(A, A.pads[pid].x, A.pads[pid].y);

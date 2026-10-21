@@ -41,7 +41,7 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 
 ---
 
-## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v56`)
+## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v57`)
 
 **Giochi** (gruppi come in `GAME_CATEGORIES`):
 - *Carte*: Bisca, Scopa (anche Scopone), Briscola, Vecia, Cava Camisa, UNO,
@@ -91,7 +91,8 @@ file**: `index.html`. Pubblicata su GitHub Pages:
   **A tutto schermo** (`.ah-full`, classe `body.ah-on`, ✕ in alto a sinistra
   per abbandonare) e disegnato come il tavolino della foto del proprietario:
   piano bianco forato, linee rosse, sponde di legno chiaro, testate nere,
-  manopole e disco rossi (la tua manopola ha un filo d'oro), contapunti 0-7
+  manopole rosse (la tua ha un filo d'oro) e disco nero (scelta del
+  proprietario), contapunti 0-7
   a cursore sulla testata sopra ogni porta (`ahDrawCounters`).
 - **Bot del Poker rifatti**: decidono sull'equità simulata (vedi §3 Poker).
   Prima puntavano/rilanciavano nell'1% delle decisioni e chi puntava sempre il
