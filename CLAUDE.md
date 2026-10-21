@@ -41,12 +41,13 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 
 ---
 
-## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v51`)
+## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v52`)
 
 **Giochi** (gruppi come in `GAME_CATEGORIES`):
 - *Carte*: Bisca, Scopa (anche Scopone), Briscola, Vecia, Cava Camisa, UNO,
   Scala 40, Poker (Texas Hold'em), **Joputa** (nuovo).
-- *Tavolo*: Forza 4, Battaglia Navale, Dama, Scacchi, Risiko.
+- *Tavolo*: Forza 4, Battaglia Navale, Dama, Scacchi, Risiko, **Air hockey**
+  (nuovo, l'unico in tempo reale).
 - *Casinò*: Roulette, Black Jack.
 
 **Funzioni trasversali recenti**:
@@ -85,6 +86,8 @@ file**: `index.html`. Pubblicata su GitHub Pages:
   etichette; le puntate stanno tra il posto e il centro.
 - Scala 40: chi non è aperto può prendere dagli scarti solo se cala 40 punti
   nel turno, altrimenti rimette la carta e pesca dal mazzo.
+- **Air hockey** (ottobre 2026): contro il bot o online in 2, primo a 7 gol.
+  Canvas a 60 fps, tocco a dito nella propria metà campo; vedi §3 Air hockey.
 - **Bot del Poker rifatti**: decidono sull'equità simulata (vedi §3 Poker).
   Prima puntavano/rilanciavano nell'1% delle decisioni e chi puntava sempre il
   piatto vinceva l'85% delle mani; ora 14-16% e chi punta sempre non guadagna
@@ -177,6 +180,22 @@ bui, dopo il flop equità contro la quota del piatto; per puntare/rilanciare
 ognuno; contro chi punta quasi sempre i bot pagano fino in fondo con ~47% al
 flop / 43% al turn e rilanciano di più (`streetAggressor`).
 
+### Air hockey (tempo reale)
+Non passa da `render()` a ogni istante: `activateAirHockey` (chiamato dopo
+l'`innerHTML`) aggancia al `<canvas id="ah-canvas">` un motore `AH` che vive
+fuori da `#app` e sopravvive ai ridisegni (`ahFrame` con
+`requestAnimationFrame`, fisica `ahStep` a ~240 passi/s, bot `ahBotTarget`).
+La partita (`match`) cambia **solo ai gol** (`score`, `goals`, `lastGoal`
+con ora del server): il ridisegno avviene solo allora.
+Online: canale separato `ahlive:<matchId>` (`puck`, `pad_p0`, `pad_p1`) che
+non passa da `setActiveMatch`. **Il disco lo comanda chi ce l'ha nella sua
+metà** (`A.owner`); al centro si passa il controllo (`ahSendTick(…, true)`,
+fotogramma con `o` = nuovo padrone). Chi riceve porta avanti il fotogramma
+con l'orologio comune (`.info/serverTimeOffset`). Il gol lo scrive chi lo
+subisce (`ahRegisterGoal`). Con un bot in sala lo muove il primo umano.
+Coordinate: larghezza 1, lunghezza `AH_H`=1.6; p0 difende in basso, p1 in
+alto; la vista di p1 è girata.
+
 ### Joputa
 Motore autonomo (`buildJoputaMatch`, `joputaCanPlay`, `joputaApplyPlay`,
 `scheduleJoputaBotMove`, `renderJoputaMatch`). Fasi `swap` → `playing` →
@@ -215,6 +234,10 @@ Motore autonomo (`buildJoputaMatch`, `joputaCanPlay`, `joputaApplyPlay`,
   verso il centro, come al tavolo vero. Orientamento consigliato: **verticale**
   (carte comuni ~45 px contro ~26 in orizzontale); su iPhone non si può
   bloccare la rotazione da una PWA, quindi funzionano entrambi.
+- **Air hockey**: autorità sul disco per metà campo invece di un telefono
+  "padrone" unico, perché così i colpi sono calcolati senza ritardo sul
+  telefono di chi colpisce. Bot volutamente più lento di te (manopola 2,3
+  contro 6) e con ~0,25 s di reazione; porta larga 0,42.
 - **Ventaglio avversari**: massimo 9 dorsi, il numero esatto nel pallino.
 - **Niente `filter` animato** sulle carte da evidenziare (ritagli in Safari):
   si usano `box-shadow` e `transform`.
@@ -272,6 +295,11 @@ dispatch in `render()` · `stateKeyOf` · esclusione in `packMatch` e
 
 ## 7. Cose da fare / punti aperti
 
+- **Air hockey online**: provato solo con un Firebase simulato (2 browser,
+  120-150 ms di ritardo, orologi sfasati di 5 s: punteggi identici, disco
+  allineato). Da provare con due telefoni veri. Difficoltà del bot da tarare
+  sul campo (contro un "umano" simulato perfetto perde 6-0 in un minuto).
+
 - **Dama**: manca la patta. Con poche dame per parte (es. 4 contro 4) una
   partita può non finire mai (visto tra due bot: 90+ mosse senza prese);
   proposta: patta dopo N mosse senza prese o con posizione ripetuta.
@@ -295,6 +323,8 @@ dispatch in `render()` · `stateKeyOf` · esclusione in `packMatch` e
   prima dei lavori recenti.
 - `README.md` contiene solo il titolo; un commento vicino a `CARD_IMG` cita
   `index-offline.html`, che nel repository non esiste.
+- Per provare l'online senza Firebase: finto `db` in pagina che inoltra le
+  scritture all'altra pagina con ritardo (fatto per l'air hockey).
 - Gli script di prova sono stati scritti di volta in volta e non sono nel
   repository: valutare una cartella `tests/` con i principali (mazziere, voli,
   partite di soli bot, mano sul tavolo).

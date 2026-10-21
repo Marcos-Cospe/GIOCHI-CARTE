@@ -247,6 +247,16 @@ body.force-share.in-match #sync-panel{display:block !important;}
 .table-wrap{display:flex;justify-content:center;margin:0 -18px 16px;}
 /* La tua mano in basso sul tavolo (activateTableHand) */
 .table-wrap.with-hand{flex-direction:column;align-items:center;}
+.ah-card{padding-bottom:10px;}
+.ah-score{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:2px 4px 8px;font-size:14px;}
+.ah-name{display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;}
+.ah-name.me{justify-content:flex-end;}
+.ah-num{font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:700;color:#D4AF6A;white-space:nowrap;}
+.ah-dash{margin:0 8px;color:var(--cream-dim);}
+.ah-dot{display:inline-block;width:12px;height:12px;border-radius:50%;flex:0 0 auto;}
+.ah-dot.me{background:#D98878;} .ah-dot.opp{background:#D4AF6A;}
+.ah-wrap{display:flex;justify-content:center;}
+#ah-canvas{display:block;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;border-radius:10px;}
 .poker-toolbar{margin-bottom:6px !important;}
 .poker-toolbar span{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .poker-turn{display:flex;flex-direction:column;align-items:center;gap:1px;margin-bottom:6px !important;padding-top:6px !important;padding-bottom:6px !important;}
@@ -1937,6 +1947,7 @@ async function scheduleBotMove(){
   if(match.game==='uno') return scheduleUnoBotMove(match);
   if(match.game==='scala40') return scheduleScala40BotMove(match);
   if(match.game==='poker') return schedulePokerBotMove(match);
+  if(match.game==='airhockey') return; // il bot si muove nel ciclo del gioco (activateAirHockey)
   if(match.game==='forza4') return scheduleForza4BotMove(match);
   if(match.game==='battaglianavale') return scheduleBattleshipBotMove(match);
   if(match.game==='dama') return scheduleDamaBotMove(match);
@@ -2329,6 +2340,9 @@ function stateKeyOf(match, claim){
     const folded = match.folded ? match.turnOrder.map(id=>match.folded[id]?1:0).join(',') : '';
     return [match.id, match.rev||0, match.handNumber, match.phase, match.street, match.currentId, chips, bets, folded, (match.community||[]).length, claimKey, syncDiverged?'DIV':''].join('|');
   }
+  if(match.game==='airhockey'){
+    return [match.id, match.rev||0, match.phase, match.goals||0, JSON.stringify(match.score||{}), claimKey, syncDiverged?'DIV':''].join('|');
+  }
   if(match.game==='forza4'){
     const gridKey = match.grid.map(row=>row.map(c=>c||'-').join('')).join('/');
     return [match.id, match.rev||0, match.dealNumber, match.phase, match.currentId, gridKey, JSON.stringify(match.handWins), claimKey, syncDiverged?'DIV':''].join('|');
@@ -2457,6 +2471,7 @@ function roomFormatMax(room){
   if(room.game==='uno') return UNO_MAX_PLAYERS;
   if(room.game==='scala40') return SCALA40_MAX_PLAYERS;
   if(room.game==='poker') return POKER_MAX_PLAYERS;
+  if(room.game==='airhockey') return AH_MAX_PLAYERS;
   if(room.game==='forza4') return F4_MAX_PLAYERS;
   if(room.game==='battaglianavale') return BS_MAX_PLAYERS;
   if(room.game==='dama') return DAMA_MAX_PLAYERS;
@@ -2563,6 +2578,8 @@ async function addRoomBot(){
               ? 'Massimo '+max+' giocatori (umani + bot) a Scala 40.'
               : room.game==='poker'
                 ? 'Massimo '+max+' giocatori (umani + bot) al Poker.'
+              : room.game==='airhockey'
+                ? 'Air hockey si gioca in 2.'
                 : 'Massimo 8 giocatori (umani + bot) per il mazzo da 40 carte.');
     return;
   }
@@ -2726,6 +2743,19 @@ async function startRoomMatch(){
     await render(true);
     return;
   }
+  if(room.game==='airhockey'){
+    const bots = room.bots||[];
+    const totale = room.players.length + bots.length;
+    if(totale!==2){ alert('Air hockey richiede esattamente 2 giocatori (ora siete '+totale+').'); return; }
+    const match = buildAirHockeyMatch(room.id, room.players.concat(bots));
+    match.players.forEach((p,i)=>{ if(i>=room.players.length) p.isBot=true; });
+    await setActiveMatch(match);
+    room.started = true;
+    await upsertRoom(room);
+    lastRenderKey = null;
+    await render(true);
+    return;
+  }
   if(room.game==='forza4'){
     const bots = room.bots||[];
     const totale = room.players.length + bots.length;
@@ -2836,13 +2866,13 @@ function renderLobby(rooms){
   const aperte = rooms.filter(s=>!s.started);
   const inCorso = rooms.filter(s=>s.started);
   const lista = aperte.length ? aperte.map(s=>{
-    const label = s.game==='scopa' ? 'Scopa' : (s.game==='briscola' ? 'Briscola' : (s.game==='joputa' ? 'Joputa' : s.game==='vecia' ? 'Vecia' : (s.game==='cavacamisa' ? 'Cava Camisa' : (s.game==='uno' ? 'UNO' : (s.game==='scala40' ? 'Scala 40' : (s.game==='poker' ? 'Poker' : (s.game==='forza4' ? 'Forza 4' : (s.game==='battaglianavale' ? 'Battaglia Navale' : (s.game==='dama' ? 'Dama' : (s.game==='scacchi' ? 'Scacchi' : (s.game==='roulette' ? 'Roulette' : (s.game==='blackjack' ? 'Black Jack' : 'Bisca'))))))))))));
+    const label = s.game==='scopa' ? 'Scopa' : (s.game==='briscola' ? 'Briscola' : (s.game==='joputa' ? 'Joputa' : s.game==='vecia' ? 'Vecia' : (s.game==='cavacamisa' ? 'Cava Camisa' : (s.game==='uno' ? 'UNO' : (s.game==='scala40' ? 'Scala 40' : (s.game==='poker' ? 'Poker' : (s.game==='forza4' ? 'Forza 4' : (s.game==='battaglianavale' ? 'Battaglia Navale' : (s.game==='dama' ? 'Dama' : (s.game==='scacchi' ? 'Scacchi' : s.game==='airhockey' ? 'Air hockey' : (s.game==='roulette' ? 'Roulette' : (s.game==='blackjack' ? 'Black Jack' : 'Bisca'))))))))))));
     const max = roomFormatMax(s);
     return `
     <div class="room-card">
       <div class="room-top">
         <span class="room-name">${esc(s.name)} <span class="game-tag">${label}</span></span>
-        <span class="room-count">${s.players.length + (s.bots?s.bots.length:0)}/${max}${(s.game==='scopa'||s.game==='briscola'||s.game==='joputa'||s.game==='vecia'||s.game==='cavacamisa'||s.game==='uno'||s.game==='scala40'||s.game==='poker'||s.game==='forza4'||s.game==='battaglianavale'||s.game==='dama'||s.game==='scacchi'||s.game==='roulette'||s.game==='blackjack')?'':' · '+s.lives+' vite'}</span>
+        <span class="room-count">${s.players.length + (s.bots?s.bots.length:0)}/${max}${(s.game==='scopa'||s.game==='briscola'||s.game==='joputa'||s.game==='vecia'||s.game==='cavacamisa'||s.game==='uno'||s.game==='scala40'||s.game==='poker'||s.game==='forza4'||s.game==='battaglianavale'||s.game==='dama'||s.game==='scacchi'||s.game==='airhockey'||s.game==='roulette'||s.game==='blackjack')?'':' · '+s.lives+' vite'}</span>
       </div>
       <div class="room-players">${s.players.map(p=>`<span class="room-chip">${esc(p)}</span>`).join('')}${(s.bots||[]).map(b=>`<span class="room-chip bot">${esc(b)} 🤖</span>`).join('')}</div>
       <div class="player-input-row" style="margin-top:10px;">
@@ -3103,11 +3133,12 @@ function renderCreaSala(){
     ${selectedGame==='battaglianavale' ? `<p class="hint" style="margin-top:8px;">Sempre e solo 2 giocatori. Posiziona le tue 5 navi, poi a turno tenta di colpire quelle nascoste dell'avversario. Chi affonda per primo tutta la flotta vince.</p>` : ''}
     ${selectedGame==='dama' ? `<p class="hint" style="margin-top:8px;">Sempre e solo 2 giocatori. La pedina muove e cattura solo in avanti e non può mai catturare una dama; la dama muove e cattura di una casella, avanti e indietro. La cattura è sempre obbligatoria (si deve prendere il maggior numero di pezzi).</p>` : ''}
     ${selectedGame==='scacchi' ? `<p class="hint" style="margin-top:8px;">Sempre e solo 2 giocatori. Regole classiche: arrocco, presa al varco, promozione. Si vince con lo scacco matto.</p>` : ''}
+    ${selectedGame==='airhockey' ? `<p class="hint" style="margin-top:8px;">Sempre e solo 2 giocatori, in tempo reale: ognuno muove la sua manopola col dito nella propria metà campo. Vince chi arriva per primo a ${AH_TARGET} gol. Online serve una buona connessione su entrambi i telefoni.</p>` : ''}
     <div id="roulette-options-slot">${selectedGame==='roulette' ? rouletteOptionsPanel() : ''}</div>
     ${selectedGame==='roulette' ? `<p class="hint" style="margin-top:8px;">Da 1 a ${ROULETTE_MAX_PLAYERS} giocatori, ognuno gioca contro il banco con le proprie fiches. Roulette europea, 37 numeri.</p>` : ''}
     <div id="blackjack-options-slot">${selectedGame==='blackjack' ? blackjackOptionsPanel() : ''}</div>
     ${selectedGame==='blackjack' ? `<p class="hint" style="margin-top:8px;">Da 1 a ${BJ_MAX_PLAYERS} giocatori, ognuno gioca contro il banco con le proprie fiches. Blackjack (asso+10) paga 3:2.</p>` : ''}
-    ${(selectedGame==='scopa'||selectedGame==='briscola'||selectedGame==='joputa'||selectedGame==='vecia'||selectedGame==='cavacamisa'||selectedGame==='uno'||selectedGame==='scala40'||selectedGame==='poker'||selectedGame==='forza4'||selectedGame==='battaglianavale'||selectedGame==='dama'||selectedGame==='scacchi'||selectedGame==='roulette'||selectedGame==='blackjack'||selectedGame==='risiko') ? '' : `<div id="lives-slot">${livesSelector()}</div>`}
+    ${(selectedGame==='scopa'||selectedGame==='briscola'||selectedGame==='joputa'||selectedGame==='vecia'||selectedGame==='cavacamisa'||selectedGame==='uno'||selectedGame==='scala40'||selectedGame==='poker'||selectedGame==='forza4'||selectedGame==='battaglianavale'||selectedGame==='dama'||selectedGame==='scacchi'||selectedGame==='airhockey'||selectedGame==='roulette'||selectedGame==='blackjack'||selectedGame==='risiko') ? '' : `<div id="lives-slot">${livesSelector()}</div>`}
     <div class="row-btns" style="margin-top:16px;">
       <button class="btn-secondary" onclick="lobbyView='lobby'; render(true)">Indietro</button>
       <button class="btn-primary" onclick="createRoom()">Crea</button>
@@ -3129,7 +3160,7 @@ function renderRoom(room){
   const dama = room.game==='dama';
   const scacchi = room.game==='scacchi';
   const formatoFisso = scopa || briscola;
-  const gameLabel = scopa ? 'Scopa' : (briscola ? 'Briscola' : (room.game==='joputa' ? 'Joputa' : vecia ? 'Vecia' : (cavacamisa ? 'Cava Camisa' : (uno ? 'UNO' : (scala40 ? 'Scala 40' : (poker ? 'Poker' : (forza4 ? 'Forza 4' : (battaglianavale ? 'Battaglia Navale' : (dama ? 'Dama' : (scacchi ? 'Scacchi' : (room.game==='roulette' ? 'Roulette' : (room.game==='blackjack' ? 'Black Jack' : 'Bisca'))))))))))));
+  const gameLabel = scopa ? 'Scopa' : (briscola ? 'Briscola' : (room.game==='joputa' ? 'Joputa' : vecia ? 'Vecia' : (cavacamisa ? 'Cava Camisa' : (uno ? 'UNO' : (scala40 ? 'Scala 40' : (poker ? 'Poker' : (forza4 ? 'Forza 4' : (battaglianavale ? 'Battaglia Navale' : (dama ? 'Dama' : (scacchi ? 'Scacchi' : room.game==='airhockey' ? 'Air hockey' : (room.game==='roulette' ? 'Roulette' : (room.game==='blackjack' ? 'Black Jack' : 'Bisca'))))))))))));
   const bots = Array.isArray(room.bots) ? room.bots : [];
   const totale = room.players.length + bots.length;
   const need = roomFormatMax(room);
@@ -3182,6 +3213,8 @@ function renderRoom(room){
                         ? `<p class="hint" style="margin-top:12px;">${totale}/${need} al tavolo · si vince catturando o bloccando tutti i pezzi avversari</p>`
                         : scacchi
                           ? `<p class="hint" style="margin-top:12px;">${totale}/${need} al tavolo · si vince con lo scacco matto</p>`
+                          : room.game==='airhockey'
+                          ? `<p class="hint" style="margin-top:12px;">${totale}/${need} al tavolo · in tempo reale, primo a ${AH_TARGET} gol</p>`
                           : roulette
                             ? `<p class="hint" style="margin-top:12px;">${totale}/${need} al tavolo · ognuno gioca contro il banco con le proprie fiches</p>`
                             : blackjack
@@ -3279,6 +3312,8 @@ async function render(force){
                 ? renderScala40Match(match, claim || {type:'all'})
                 : match.game==='poker'
                   ? renderPokerMatch(match, claim || {type:'all'})
+                  : match.game==='airhockey'
+                    ? renderAirHockeyMatch(match, claim || {type:'all'})
                   : match.game==='forza4'
                     ? renderForza4Match(match, claim || {type:'all'})
                     : match.game==='battaglianavale'
@@ -3302,6 +3337,7 @@ async function render(force){
     if(match.game==='roulette') activateRouletteSpinAnimation();
     if(match.game==='battaglianavale') activateBattleshipShotAnimation(match, claim);
     if(match.game==='dama') activateDamaMoveAnimation(match);
+    if(match.game==='airhockey') activateAirHockey(match, claim || {type:'all'});
     if(!match.game) activateBiscaDealAnimation(match);
     preloadDeckImages(match.game);
     activateTableHand(match, claim);
@@ -3390,13 +3426,14 @@ function renderSoloSetup(){
   const scala40 = selectedGame==='scala40';
   const poker = selectedGame==='poker';
   const forza4 = selectedGame==='forza4';
+  const airhockey = selectedGame==='airhockey';
   const battaglianavale = selectedGame==='battaglianavale';
   const dama = selectedGame==='dama';
   const scacchi = selectedGame==='scacchi';
   const roulette = selectedGame==='roulette';
   const blackjack = selectedGame==='blackjack';
   const formatoFisso = scopa || briscola;
-  const maxBot = scopa ? 3 : (selectedGame==='joputa' ? JOPUTA_MAX_PLAYERS-1 : vecia ? VECIA_MAX_PLAYERS-1 : (cavacamisa ? CAVA_MAX_PLAYERS-1 : (uno ? UNO_MAX_PLAYERS-1 : (scala40 ? SCALA40_MAX_PLAYERS-1 : (poker ? POKER_MAX_PLAYERS-1 : (forza4 ? F4_MAX_PLAYERS-1 : (battaglianavale ? BS_MAX_PLAYERS-1 : (dama ? DAMA_MAX_PLAYERS-1 : (scacchi ? CHESS_MAX_PLAYERS-1 : (roulette ? ROULETTE_MAX_PLAYERS-1 : (blackjack ? BJ_MAX_PLAYERS-1 : 7)))))))))));
+  const maxBot = scopa ? 3 : (selectedGame==='joputa' ? JOPUTA_MAX_PLAYERS-1 : vecia ? VECIA_MAX_PLAYERS-1 : (cavacamisa ? CAVA_MAX_PLAYERS-1 : (uno ? UNO_MAX_PLAYERS-1 : (scala40 ? SCALA40_MAX_PLAYERS-1 : (poker ? POKER_MAX_PLAYERS-1 : (forza4 ? F4_MAX_PLAYERS-1 : airhockey ? 1 : (battaglianavale ? BS_MAX_PLAYERS-1 : (dama ? DAMA_MAX_PLAYERS-1 : (scacchi ? CHESS_MAX_PLAYERS-1 : (roulette ? ROULETTE_MAX_PLAYERS-1 : (blackjack ? BJ_MAX_PLAYERS-1 : 7)))))))))));
   const botCount = Math.min(soloBotCount, maxBot);
   return `
   <div class="card">
@@ -3409,6 +3446,7 @@ function renderSoloSetup(){
     ${scopa ? `<div id="scopa-options-slot">${scopaOptionsPanel()}</div><p class="hint">Nei formati a 3 o 4 giocatori, i bot completano automaticamente la formazione.</p>` :
       briscola ? `<div id="briscola-options-slot">${briscolaOptionsPanel()}</div><p class="hint">Nei formati a 3 o 4 giocatori, i bot completano automaticamente la formazione.</p>` :
       forza4 ? `<div id="forza4-options-slot">${forza4OptionsPanel()}</div>` :
+      airhockey ? `<p class="hint" style="margin-top:8px;">Tu contro il bot, in tempo reale: trascina il dito nella tua metà campo per muovere la manopola e tira il disco nella porta in alto. Primo a ${AH_TARGET} gol.</p>` :
       battaglianavale ? `<p class="hint" style="margin-top:8px;">Posiziona le tue 5 navi, poi a turno tenta di colpire quelle nascoste del bot. Chi affonda per primo tutta la flotta vince.</p>` :
       dama ? `<p class="hint" style="margin-top:8px;">Tu (Bianco) contro il bot (Nero). La pedina muove e cattura solo in avanti e non può catturare una dama; la dama muove e cattura di una casella, avanti e indietro. Cattura obbligatoria.</p>` :
       scacchi ? `<p class="hint" style="margin-top:8px;">Tu (Bianco) contro il bot (Nero). Regole classiche: arrocco, presa al varco, promozione, scacco matto.</p>` : `
@@ -3430,7 +3468,7 @@ function renderSoloSetup(){
         : `<div id="lives-slot">${livesSelector()}</div>`}`}
     <div class="row-btns" style="margin-top:16px;">
       <button class="btn-secondary" onclick="lobbyView='lobby'; render(true)">Indietro</button>
-      <button id="start-solo-btn" class="btn-primary" onclick="startSoloMatch()">${formatoFisso ? 'Inizia ('+(scopa?scopaFormat:briscolaFormat)+')' : ((forza4||battaglianavale||dama||scacchi) ? 'Inizia (1 vs 1)' : 'Inizia (1 + '+botCount+' bot)')}</button>
+      <button id="start-solo-btn" class="btn-primary" onclick="startSoloMatch()">${formatoFisso ? 'Inizia ('+(scopa?scopaFormat:briscolaFormat)+')' : ((forza4||airhockey||battaglianavale||dama||scacchi) ? 'Inizia (1 vs 1)' : 'Inizia (1 + '+botCount+' bot)')}</button>
     </div>
   </div>`;
 }
@@ -3445,7 +3483,8 @@ const GAME_CATEGORIES = [
   ]},
   { title:'Giochi da tavolo', games: [
     {id:'forza4', label:'Forza 4'}, {id:'battaglianavale', label:'Battaglia Navale'},
-    {id:'dama', label:'Dama'}, {id:'scacchi', label:'Scacchi'}, {id:'risiko', label:'Risiko'}
+    {id:'dama', label:'Dama'}, {id:'scacchi', label:'Scacchi'}, {id:'risiko', label:'Risiko'},
+    {id:'airhockey', label:'Air hockey'}
   ]},
   { title:'Casinò', games: [
     {id:'roulette', label:'Roulette'}, {id:'blackjack', label:'Black Jack'}
@@ -3593,6 +3632,14 @@ async function startSoloMatch(){
     const match = buildPokerMatch('m'+Date.now(), names);
     match.players.forEach((p,i)=>{ if(i>0) p.isBot=true; });
     startPokerHand(match);
+    await setActiveMatch(match);
+    await setClaim(match.id, {type:'seat', playerId:'p0'});
+    await render();
+    return;
+  }
+  if(selectedGame==='airhockey'){
+    const match = buildAirHockeyMatch('m'+Date.now(), [yourName, 'Bot 1']);
+    match.players[1].isBot = true;
     await setActiveMatch(match);
     await setClaim(match.id, {type:'seat', playerId:'p0'});
     await render();
@@ -4236,7 +4283,7 @@ async function backToLobbyFromEnd(){
 function packMatch(m){
   // le partite di Scopa e Briscola hanno una forma diversa (niente previsioni/prese a
   // mano di Bisca), e sono gia' leggere di loro: non passano per questa compressione.
-  if(m.game==='scopa' || m.game==='briscola' || m.game==='joputa' || m.game==='vecia' || m.game==='cavacamisa' || m.game==='uno' || m.game==='scala40' || m.game==='poker' || m.game==='forza4' || m.game==='battaglianavale' || m.game==='dama' || m.game==='scacchi' || m.game==='roulette' || m.game==='blackjack') return m;
+  if(m.game==='scopa' || m.game==='briscola' || m.game==='joputa' || m.game==='vecia' || m.game==='cavacamisa' || m.game==='uno' || m.game==='scala40' || m.game==='poker' || m.game==='forza4' || m.game==='airhockey' || m.game==='battaglianavale' || m.game==='dama' || m.game==='scacchi' || m.game==='roulette' || m.game==='blackjack') return m;
   // partite iniziate con una versione precedente non hanno il seme: le mani non
   // sarebbero ricostruibili, quindi restano nel formato esteso.
   if(m.seed===undefined || m.seed===null) return m;
@@ -4272,7 +4319,7 @@ function packMatch(m){
   return p;
 }
 function unpackMatch(p){
-  if(!p || p.game==='scopa' || p.game==='briscola' || p.game==='joputa' || p.game==='vecia' || p.game==='cavacamisa' || p.game==='uno' || p.game==='scala40' || p.game==='poker' || p.game==='forza4' || p.game==='battaglianavale' || p.game==='dama' || p.game==='scacchi' || p.game==='roulette' || p.game==='blackjack') return p; // gia' nella forma giusta
+  if(!p || p.game==='scopa' || p.game==='briscola' || p.game==='joputa' || p.game==='vecia' || p.game==='cavacamisa' || p.game==='uno' || p.game==='scala40' || p.game==='poker' || p.game==='forza4' || p.game==='airhockey' || p.game==='battaglianavale' || p.game==='dama' || p.game==='scacchi' || p.game==='roulette' || p.game==='blackjack') return p; // gia' nella forma giusta
   if(!p.i) return p; // formato non compresso: lascia com'e'
   const m = {
     id:p.i, seed:p.s, createdAt:p.t, startingLives:p.L, roundIndex:p.r,
@@ -12794,13 +12841,13 @@ function renderHistory(history){
     const roulette = h.game==='roulette';
     const blackjack = h.game==='blackjack';
     const risiko = h.game==='risiko';
-    const gameLabel = scopa ? 'Scopa' : (briscola ? 'Briscola' : (h.game==='joputa' ? 'Joputa' : vecia ? 'Vecia' : (cavacamisa ? 'Cava Camisa' : (uno ? 'UNO' : (scala40 ? 'Scala 40' : (poker ? 'Poker' : (forza4 ? 'Forza 4' : (battaglianavale ? 'Battaglia Navale' : (dama ? 'Dama' : (scacchi ? 'Scacchi' : (roulette ? 'Roulette' : (blackjack ? 'Black Jack' : (risiko ? 'Risiko' : 'Bisca')))))))))))));
+    const gameLabel = scopa ? 'Scopa' : (briscola ? 'Briscola' : (h.game==='joputa' ? 'Joputa' : vecia ? 'Vecia' : (cavacamisa ? 'Cava Camisa' : (uno ? 'UNO' : (scala40 ? 'Scala 40' : (poker ? 'Poker' : (forza4 ? 'Forza 4' : (battaglianavale ? 'Battaglia Navale' : (dama ? 'Dama' : (scacchi ? 'Scacchi' : h.game==='airhockey' ? 'Air hockey' : (roulette ? 'Roulette' : (blackjack ? 'Black Jack' : (risiko ? 'Risiko' : 'Bisca')))))))))))));
     const detail = isOpen ? `
       <div class="history-detail">
         ${h.players.map(p=>`
           <div class="rank-row ${vecia ? (p.isLoser?'':'win') : (p.rank===1?'win':'')}">
             <span>${vecia ? (p.rank ? p.rank+'. ' : '') : p.rank+'. '}${esc(p.name)}${p.isBot?' 🤖':''}</span>
-            <span>${scopa ? p.punti+' punti' : (briscola||cavacamisa||uno||forza4) ? p.maniVinte+' man'+(p.maniVinte===1?'o':'i')+' vinte' : (scala40 && h.mode==='ramino') ? p.punti+' punti di penalita\'' : scala40 ? p.maniVinte+' man'+(p.maniVinte===1?'o':'i')+' vinte' : poker ? p.chips+' fiches' : vecia ? (p.isLoser?(h.game==='joputa'?'😱 è il Joputa':'😱 è la Vecia'):'✅ salvo') : battaglianavale ? (p.rank===1?'🏆 vincitore':'flotta affondata') : dama ? (p.rank===1?'🏆 vincitore':'sconfitto') : risiko ? (p.rank===1?'🏆 vincitore':'sconfitto') : scacchi ? (h.isDraw?'🤝 pareggio':(p.rank===1?'🏆 vincitore':'scacco matto subito')) : (roulette||blackjack) ? p.chips+' fiches'+(p.rank===1?' 🏆':'') : (p.rank===1?'vincitore':'eliminato mano '+p.eliminatedAtRound)}</span>
+            <span>${scopa ? p.punti+' punti' : (briscola||cavacamisa||uno||forza4) ? p.maniVinte+' man'+(p.maniVinte===1?'o':'i')+' vinte' : (scala40 && h.mode==='ramino') ? p.punti+' punti di penalita\'' : scala40 ? p.maniVinte+' man'+(p.maniVinte===1?'o':'i')+' vinte' : poker ? p.chips+' fiches' : vecia ? (p.isLoser?(h.game==='joputa'?'😱 è il Joputa':'😱 è la Vecia'):'✅ salvo') : battaglianavale ? (p.rank===1?'🏆 vincitore':'flotta affondata') : h.game==='airhockey' ? p.goals+' gol'+(p.rank===1?' · 🏆':'') : dama ? (p.rank===1?'🏆 vincitore':'sconfitto') : risiko ? (p.rank===1?'🏆 vincitore':'sconfitto') : scacchi ? (h.isDraw?'🤝 pareggio':(p.rank===1?'🏆 vincitore':'scacco matto subito')) : (roulette||blackjack) ? p.chips+' fiches'+(p.rank===1?' 🏆':'') : (p.rank===1?'vincitore':'eliminato mano '+p.eliminatedAtRound)}</span>
           </div>`).join('')}
         <div style="font-size:12px;color:var(--cream-dim);margin-top:6px;">${
           scopa ? 'formato '+(h.format||'1v1')+' · a '+(h.target||11)+' punti · '+h.rounds+' man'+(h.rounds===1?'o':'i')+' giocate'
@@ -12810,6 +12857,7 @@ function renderHistory(history){
           : poker ? 'torneo · '+(h.handNumber||1)+' man'+((h.handNumber||1)===1?'o':'i')+' giocate'
           : forza4 ? 'prima a '+(h.handsToWin||4)+' vittorie · '+(h.dealNumber||1)+' man'+((h.dealNumber||1)===1?'o':'i')+' giocate'
           : battaglianavale ? 'partita secca'
+          : h.game==='airhockey' ? 'primo a '+(h.target||7)+' gol'
           : dama ? 'partita secca'
           : risiko ? 'partita secca'
           : scacchi ? 'partita secca'+(h.isDraw?' · '+(h.drawReason||'patta'):'')
@@ -13514,6 +13562,630 @@ async function pokerConfirmRaise(matchId, playerId){
 // ============================================================================
 // FORZA 4 - rendering
 // ============================================================================
+// ============================================================================
+// AIR HOCKEY
+// ============================================================================
+// L'unico gioco in tempo reale dell'app: non passa da render() a ogni istante
+// (render ricostruisce tutto #app) ma ha un canvas con un suo ciclo a 60 fps.
+// La partita (match) cambia solo quando c'e' un gol; disco e manopole online
+// viaggiano su un canale a parte ('ahlive:<id>'), che non fa ridisegnare
+// l'app 25 volte al secondo.
+//
+// Coordinate "del tavolo": larghezza 1, lunghezza AH_H. p0 difende la porta
+// in basso (y = AH_H), p1 quella in alto (y = 0). Chi gioca come p1 vede il
+// tavolo girato, cosi' ognuno ha sempre la propria porta in basso.
+//
+// Online il disco lo comanda chi ce l'ha nella propria meta' campo (le
+// manopole non passano mai il centro, quindi i colpi si calcolano sempre sul
+// telefono di chi colpisce, senza il ritardo di rete); passata la linea di
+// centro il comando passa all'altro. Il gol lo registra chi lo subisce: il
+// disco e' nella sua meta', quindi e' lui a vederlo per primo e con certezza.
+const AH_MAX_PLAYERS = 2;
+const AH_TARGET = 7;
+const AH_H = 1.6;
+const AH_PUCK_R = 0.042, AH_PAD_R = 0.072, AH_GOAL_W = 0.42;
+const AH_PUCK_MAX = 4.2;     // unita' al secondo
+const AH_PAD_MAX = 6;        // la tua manopola segue il dito fino a questa velocita'
+const AH_BOT_MAX = 2.3;      // il bot e' piu' lento di te (6): si puo' battere
+const AH_WALL_E = 0.88, AH_HIT_E = 0.9;
+const AH_GOAL_PAUSE = 1500;  // ms di pausa dopo un gol
+const AH_SEND_MS = 40;       // online: al massimo 25 invii al secondo
+const AH_RAIL = 0.055;       // bordo del tavolo attorno al piano
+
+function buildAirHockeyMatch(id, names){
+  const players = names.map((name,i)=>({id:'p'+i, name, isBot:false}));
+  return {
+    id, game:'airhockey', createdAt:new Date().toISOString(),
+    players, turnOrder: players.map(p=>p.id),
+    score:{p0:0, p1:0}, target:AH_TARGET, goals:0, lastGoal:null,
+    phase:'playing', winnerId:null
+  };
+}
+function ahOther(pid){ return pid==='p0' ? 'p1' : 'p0'; }
+function ahHalfOf(y){ return y > AH_H/2 ? 'p0' : 'p1'; }
+// il disco riparte fermo nella meta' di chi deve battere (chi ha subito gol)
+function ahServeState(pid){ return { x:0.5, y: pid==='p0' ? AH_H*0.72 : AH_H*0.28, vx:0, vy:0 }; }
+function ahPadHome(pid){ return { id:pid, x:0.5, y: pid==='p0' ? AH_H-0.17 : 0.17, vx:0, vy:0 }; }
+function ahClampPad(pid, p){
+  const r = AH_PAD_R;
+  p.x = Math.max(r, Math.min(1-r, p.x));
+  if(pid==='p0') p.y = Math.max(AH_H/2 + r, Math.min(AH_H - r, p.y));
+  else p.y = Math.max(r, Math.min(AH_H/2 - r, p.y));
+}
+
+// Un passo di fisica (da chiamare con dt piccoli, ~1/240 s, per non far
+// "attraversare" la manopola a un disco veloce). pads: le manopole che
+// possono colpire il disco in questo calcolo. Restituisce chi ha SUBITO gol
+// ('p0' o 'p1') oppure null; in events finiscono 'wall' e 'hit'.
+function ahStep(puck, pads, dt, events){
+  puck.x += puck.vx*dt; puck.y += puck.vy*dt;
+  const f = Math.max(0, 1 - 0.2*dt); puck.vx *= f; puck.vy *= f;
+  const R = AH_PUCK_R, half = AH_GOAL_W/2;
+  const inMouth = Math.abs(puck.x-0.5) < half;
+  if(puck.x < R){ puck.x = R; puck.vx = Math.abs(puck.vx)*AH_WALL_E; if(events) events.push('wall'); }
+  else if(puck.x > 1-R){ puck.x = 1-R; puck.vx = -Math.abs(puck.vx)*AH_WALL_E; if(events) events.push('wall'); }
+  if(!inMouth){
+    if(puck.y < R){ puck.y = R; puck.vy = Math.abs(puck.vy)*AH_WALL_E; if(events) events.push('wall'); }
+    else if(puck.y > AH_H-R){ puck.y = AH_H-R; puck.vy = -Math.abs(puck.vy)*AH_WALL_E; if(events) events.push('wall'); }
+  } else if(puck.y < R || puck.y > AH_H-R){
+    // dentro la bocca della porta: i pali tengono il disco in mezzo
+    const lim = half - R*0.6;
+    if(puck.x < 0.5-lim){ puck.x = 0.5-lim; puck.vx = Math.abs(puck.vx)*AH_WALL_E; }
+    else if(puck.x > 0.5+lim){ puck.x = 0.5+lim; puck.vx = -Math.abs(puck.vx)*AH_WALL_E; }
+  }
+  if(puck.y < -R) return 'p1';
+  if(puck.y > AH_H+R) return 'p0';
+  for(const pd of pads){
+    const dx = puck.x-pd.x, dy = puck.y-pd.y, d = Math.hypot(dx,dy), min = R+AH_PAD_R;
+    if(d < min && d > 1e-6){
+      const nx = dx/d, ny = dy/d;
+      puck.x = pd.x + nx*min; puck.y = pd.y + ny*min;
+      const vn = (puck.vx-pd.vx)*nx + (puck.vy-pd.vy)*ny;
+      if(vn < 0){ puck.vx -= (1+AH_HIT_E)*vn*nx; puck.vy -= (1+AH_HIT_E)*vn*ny; if(events) events.push('hit'); }
+    }
+  }
+  // la manopola non deve poter spingere il disco oltre le sponde (succedeva
+  // in un angolo: il disco finiva fuori dal piano e restava li')
+  if(puck.x < R) puck.x = R; else if(puck.x > 1-R) puck.x = 1-R;
+  if(Math.abs(puck.x-0.5) >= half){ if(puck.y < R) puck.y = R; else if(puck.y > AH_H-R) puck.y = AH_H-R; }
+  const sp = Math.hypot(puck.vx, puck.vy);
+  if(sp > AH_PUCK_MAX){ puck.vx *= AH_PUCK_MAX/sp; puck.vy *= AH_PUCK_MAX/sp; }
+  else if(sp < 0.004){ puck.vx = 0; puck.vy = 0; }
+  return null;
+}
+function ahMovePad(pid, pd, tx, ty, maxV, dt){
+  const ox = pd.x, oy = pd.y;
+  const dx = tx-pd.x, dy = ty-pd.y, d = Math.hypot(dx,dy), step = maxV*dt;
+  if(d <= step){ pd.x = tx; pd.y = ty; } else { pd.x += dx/d*step; pd.y += dy/d*step; }
+  ahClampPad(pid, pd);
+  pd.vx = (pd.x-ox)/dt; pd.vy = (pd.y-oy)/dt;
+}
+
+// Bot: ragiona come se difendesse la porta in alto (se e' p0 si gira tutto).
+// Se il disco e' nella sua meta' e non gli sta arrivando addosso veloce, va
+// a mettersi dietro al disco e tira verso la porta avversaria; se il disco
+// arriva, si piazza davanti alla porta sulla traiettoria; altrimenti torna
+// in difesa seguendo il disco di lato.
+// Mira scelta ogni volta che il disco entra nella meta' del bot: un punto a
+// caso della porta, oppure di sponda (punto riflesso oltre una parete). Con
+// la mira sempre al centro due bot si respingevano il disco all'infinito e
+// il gioco diventava prevedibile anche contro una persona.
+function ahBotPickAim(){
+  const r = Math.random();
+  const gx = 0.5 + (Math.random()-0.5)*(AH_GOAL_W*0.7);
+  const err = (Math.random()-0.5)*0.3;
+  if(r < 0.5) return { x: gx, err };
+  const R = AH_PUCK_R;
+  return { x: r < 0.75 ? 2*R - gx : 2*(1-R) - gx, err };
+}
+function ahBotTarget(pid, puck, me, aim){
+  aim = aim || { x:0.5, err:0 };
+  const flip = pid==='p0';
+  const P = flip ? {x:1-puck.x, y:AH_H-puck.y, vx:-puck.vx, vy:-puck.vy} : puck;
+  const M = flip ? {x:1-me.x, y:AH_H-me.y} : me;
+  let tx, ty;
+  const reach = AH_PUCK_R + AH_PAD_R;
+  if(P.y < AH_H/2 - AH_PUCK_R && (P.vy > -0.6 || P.y < 0.3)){
+    const ax = aim.x - P.x, ay = AH_H - P.y, al = Math.hypot(ax,ay) || 1;
+    const dx = ax/al, dy = ay/al;
+    const along = (M.x-P.x)*dx + (M.y-P.y)*dy;   // <0: il bot sta dietro al disco
+    const side = (M.x-P.x)*(-dy) + (M.y-P.y)*dx;
+    if(along < -reach*0.5 && Math.abs(side) < 0.05){
+      tx = P.x + dx*0.15; ty = P.y + dy*0.15;     // in linea: tiro attraverso il disco
+    } else if(along < 0){
+      // dietro al disco ma storto: prima si allinea (colpito di striscio il
+      // disco finiva sempre negli angoli e mai in porta)
+      tx = P.x - dx*(reach+0.03); ty = P.y - dy*(reach+0.03);
+    } else {
+      // davanti al disco: gli gira attorno senza spingerlo verso la propria porta
+      const s = side >= 0 ? 1 : -1;
+      tx = P.x - dx*(reach+0.03) + (-dy)*s*(reach+0.02);
+      ty = P.y - dy*(reach+0.03) + dx*s*(reach+0.02);
+    }
+  } else if(P.vy < -0.05){
+    // dove arrivera' il disco all'altezza della difesa (rimbalzi compresi)
+    const dyLine = 0.16;
+    const t = Math.max(0, (P.y - dyLine) / -P.vy);
+    let x = P.x + P.vx*t;
+    const lo = AH_PUCK_R, hi = 1-AH_PUCK_R, span = hi-lo;
+    x = ((x-lo) % (2*span) + 2*span) % (2*span);
+    x = lo + (x > span ? 2*span - x : x);
+    // un filo di imprecisione: non para proprio tutto
+    tx = Math.max(0.5-AH_GOAL_W*0.75, Math.min(0.5+AH_GOAL_W*0.75, x + aim.err));
+    ty = dyLine;
+  } else {
+    tx = 0.5 + (P.x-0.5)*0.4; ty = 0.15;
+  }
+  return flip ? {x:1-tx, y:AH_H-ty} : {x:tx, y:ty};
+}
+
+let ahSoundAt = 0;
+function ahSound(kind){
+  const ctx = getAudioCtx();
+  if(!ctx) return;
+  const now = performance.now();
+  if(kind!=='goal' && now - ahSoundAt < 70) return;
+  ahSoundAt = now;
+  try{
+    const t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    if(kind==='goal'){
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(520, t); o.frequency.exponentialRampToValueAtTime(1040, t+0.28);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.22, t+0.03); g.gain.exponentialRampToValueAtTime(0.0001, t+0.55);
+      o.start(t); o.stop(t+0.6);
+    } else {
+      o.type = 'square';
+      o.frequency.setValueAtTime(kind==='hit' ? 230 : 140, t);
+      g.gain.setValueAtTime(kind==='hit' ? 0.09 : 0.04, t); g.gain.exponentialRampToValueAtTime(0.0001, t+0.06);
+      o.start(t); o.stop(t+0.07);
+    }
+  }catch(e){}
+}
+
+// --- Motore (stato fuori da #app: sopravvive ai ridisegni) -------------------
+let AH = null;
+function ahServerNow(){ return Date.now() + ((AH && AH.offset) || 0); }
+function ahCreate(match, myId){
+  const humans = match.players.filter(p=>!p.isBot).map(p=>p.id);
+  const hostId = humans[0] || 'p0';
+  // su questo telefono si muovono: la tua manopola e, se sei il primo umano
+  // della sala, quelle dei bot (cosi' un bot non lo muovono due telefoni)
+  const local = new Set();
+  if(myId){
+    local.add(myId);
+    if(myId===hostId) match.players.filter(p=>p.isBot).forEach(p=>local.add(p.id));
+  } else if(soloMode){
+    match.players.forEach(p=>local.add(p.id));
+  }
+  const A = {
+    matchId: match.id, match, myId, local,
+    online: !soloMode && firebaseOk && !!db,
+    puck: ahServeState('p0'), owner:'p0',
+    pads: { p0: ahPadHome('p0'), p1: ahPadHome('p1') },
+    goalsSeen: -1, freezeUntil: 0, goalPending: false, flash: null,
+    pointer: null, touched: false, lastSend: 0, lastPadSend: {}, seq: 0, offset: 0,
+    remote: {}, lastSeq: {}, renderOff: {x:0, y:0}, localHitT: 0, trail: [],
+    refs: [], raf: null, last: 0, bg: null, bgKey: ''
+  };
+  if(A.online){
+    const base = db.ref(fbPath('ahlive:'+match.id));
+    A.base = base;
+    const off = db.ref('.info/serverTimeOffset');
+    const onOff = s=>{ A.offset = s.val()||0; };
+    off.on('value', onOff); A.refs.push([off, onOff]);
+    const pr = base.child('puck');
+    const onPuck = s=>ahOnPuckFrame(A, s.val());
+    pr.on('value', onPuck); A.refs.push([pr, onPuck]);
+    ['p0','p1'].forEach(pid=>{
+      if(local.has(pid)) return;
+      const r = base.child('pad_'+pid);
+      const cb = s=>{ const v = s.val(); if(v) A.remote[pid] = v; };
+      r.on('value', cb); A.refs.push([r, cb]);
+    });
+  }
+  return A;
+}
+function ahTeardown(){
+  if(!AH) return;
+  AH.refs.forEach(([r,cb])=>{ try{ r.off('value', cb); }catch(e){} });
+  if(AH.raf) cancelAnimationFrame(AH.raf);
+  AH = null;
+}
+// Nuovo stato della partita (all'inizio o dopo un gol): disco a chi batte,
+// manopole a casa, pausa visibile a tutti con lo stesso orologio.
+function ahOnMatch(A, match){
+  A.match = match;
+  if((match.goals||0) === A.goalsSeen) return;
+  const first = A.goalsSeen === -1;
+  A.goalsSeen = match.goals||0;
+  A.goalPending = false;
+  A.renderOff = {x:0, y:0}; A.trail = [];
+  const lg = match.lastGoal;
+  const serve = lg ? lg.against : 'p0';
+  A.puck = ahServeState(serve); A.owner = serve;
+  ['p0','p1'].forEach(pid=>{ if(!A.local.has(pid) || first) A.pads[pid] = ahPadHome(pid); });
+  if(lg){
+    A.freezeUntil = lg.t + AH_GOAL_PAUSE;
+    if(!first){ A.flash = { by: lg.by, until: A.freezeUntil }; ahSound('goal'); }
+  } else {
+    A.freezeUntil = ahServerNow() + 900;
+  }
+}
+async function ahRegisterGoal(A, conceded){
+  const scorer = ahOther(conceded);
+  A.goalPending = true; A.goalPendingAt = performance.now(); A.puck.vx = 0; A.puck.vy = 0;
+  const m = await getActiveMatch();
+  if(!m || m.id!==A.matchId || m.phase!=='playing') return;
+  if((m.goals||0) !== A.goalsSeen) return; // gol gia' registrato
+  m.score[scorer] = (m.score[scorer]||0) + 1;
+  m.goals = (m.goals||0) + 1;
+  m.lastGoal = { by: scorer, against: conceded, t: ahServerNow() };
+  if(m.score[scorer] >= (m.target||AH_TARGET)){ m.phase = 'ended'; m.winnerId = scorer; }
+  await setActiveMatch(m);
+  // partita finita: il canale di disco e manopole non serve piu'
+  if(m.phase==='ended' && A.base) A.base.remove().catch(()=>{});
+  await render();
+}
+
+// --- Rete --------------------------------------------------------------------
+function ahSendTick(A, force, handoff){
+  if(!A.online || !A.base) return;
+  const now = performance.now();
+  const upd = {};
+  // nel passaggio di consegne il disco e' gia' "dell'altro" ma il fotogramma
+  // va mandato lo stesso: e' proprio quello che gli dice di prenderlo
+  const authority = A.local.has(A.owner) || handoff;
+  if(authority){
+    const moving = A.puck.vx || A.puck.vy;
+    const gap = moving ? AH_SEND_MS : 250;
+    if(force || now - A.lastSend >= gap){
+      A.lastSend = now;
+      upd.puck = { x:+A.puck.x.toFixed(4), y:+A.puck.y.toFixed(4), vx:+A.puck.vx.toFixed(4), vy:+A.puck.vy.toFixed(4),
+                   o:A.owner, t:ahServerNow(), s:++A.seq, g:A.goalsSeen, by:A.myId||'?' };
+    }
+  }
+  A.local.forEach(pid=>{
+    const pd = A.pads[pid], last = A.lastPadSend[pid];
+    const moved = !last || Math.abs(last.x-pd.x)+Math.abs(last.y-pd.y) > 0.002;
+    if((moved && now - (last?last.at:0) >= AH_SEND_MS) || now - (last?last.at:0) > 500){
+      A.lastPadSend[pid] = { x:pd.x, y:pd.y, at:now };
+      upd['pad_'+pid] = { x:+pd.x.toFixed(4), y:+pd.y.toFixed(4), vx:+pd.vx.toFixed(3), vy:+pd.vy.toFixed(3), t:ahServerNow() };
+    }
+  });
+  if(Object.keys(upd).length) A.base.update(upd).catch(()=>{});
+}
+// Fotogramma del disco arrivato dall'altro telefono.
+function ahOnPuckFrame(A, f){
+  if(AH!==A || !f || f.g !== A.goalsSeen || A.goalPending) return;
+  if(A.myId && f.by === A.myId) return;            // e' il mio
+  if(f.s <= (A.lastSeq[f.by]||0)) return;
+  A.lastSeq[f.by] = f.s;
+  const mine = A.local.has(A.owner);
+  if(A.local.has(f.o)){
+    // l'altro mi passa il disco: se nel frattempo l'ho gia' colpito io, tengo
+    // il mio; altrimenti riparto dal suo, portato avanti fino a "adesso"
+    if(mine) return;
+    A.owner = f.o;
+    if(A.localHitT > f.t) return;
+    ahAdoptFrame(A, f, true);
+    return;
+  }
+  if(mine){
+    if(A.localHitT > f.t) return;                  // il mio colpo e' piu' recente
+    A.owner = f.o;
+  }
+  ahAdoptFrame(A, f, false);
+}
+function ahAdoptFrame(A, f, withMyPads){
+  const p = { x:f.x, y:f.y, vx:f.vx, vy:f.vy };
+  const lag = Math.max(0, Math.min(0.5, (ahServerNow() - f.t)/1000));
+  const pads = withMyPads ? [...A.local].map(id=>A.pads[id]) : [];
+  const h = 1/240;
+  for(let t=0; t<lag; t+=h){ if(ahStep(p, pads, Math.min(h, lag-t), null)) break; }
+  if((A.puck.vx*p.vx + A.puck.vy*p.vy) < 0) ahSound('hit');
+  // niente salti: la differenza si recupera in un decimo di secondo
+  A.renderOff.x += A.puck.x - p.x; A.renderOff.y += A.puck.y - p.y;
+  if(Math.hypot(A.renderOff.x, A.renderOff.y) > 0.4) A.renderOff = {x:0, y:0};
+  A.puck = p;
+}
+
+// --- Ciclo di gioco ------------------------------------------------------------
+function ahUpdate(A, dt){
+  const m = A.match;
+  if(!m || m.phase!=='playing') return;
+  const now = ahServerNow();
+  // se la scrittura del gol non va a buon fine (rete), non si resta bloccati
+  if(A.goalPending && performance.now() - (A.goalPendingAt||0) > 5000){
+    A.goalPending = false; A.puck = ahServeState(A.owner);
+  }
+  const frozen = now < A.freezeUntil || A.goalPending;
+  if(A.flash && now > A.flash.until) A.flash = null;
+  // manopole degli altri telefoni: ultima posizione nota, portata avanti di poco
+  ['p0','p1'].forEach(pid=>{
+    const f = A.remote[pid];
+    if(A.local.has(pid) || !f) return;
+    const lag = Math.max(0, Math.min(0.1, (now - f.t)/1000));
+    const pd = A.pads[pid];
+    const tx = f.x + f.vx*lag, ty = f.y + f.vy*lag;
+    pd.x += (tx-pd.x)*0.5; pd.y += (ty-pd.y)*0.5; pd.vx = f.vx; pd.vy = f.vy;
+    ahClampPad(pid, pd);
+  });
+  const SUB = Math.max(1, Math.ceil(dt*240)), h = dt/SUB;
+  const ev = [];
+  for(let s=0; s<SUB; s++){
+    A.local.forEach(pid=>{
+      const pd = A.pads[pid];
+      const pl = m.players.find(p=>p.id===pid);
+      if(pl && pl.isBot){
+        A.botAim = A.botAim || {};
+        const inHalf = ahHalfOf(A.puck.y)===pid;
+        if(!A.botAim[pid] || A.botAim[pid].inHalf!==inHalf){ A.botAim[pid] = Object.assign(ahBotPickAim(), {inHalf}); }
+        // il bot "vede" il disco con ~0,2 s di ritardo, come una persona:
+        // altrimenti prevedeva ogni rimbalzo all'istante e parava tutto
+        A.botSeen = A.botSeen || {};
+        const seen = A.botSeen[pid];
+        if(!seen || performance.now() - seen.at > 260) A.botSeen[pid] = { at: performance.now(), p: {x:A.puck.x, y:A.puck.y, vx:A.puck.vx, vy:A.puck.vy} };
+        const sp = A.botSeen[pid].p, age = (performance.now() - A.botSeen[pid].at)/1000;
+        const guess = { x: sp.x + sp.vx*age, y: sp.y + sp.vy*age, vx: sp.vx, vy: sp.vy };
+        // vicino a un disco lento usa la posizione vera (per colpirlo davvero);
+        // in parata no, se no l'imprecisione voluta spariva all'ultimo istante
+        const near = Math.hypot(A.puck.x-pd.x, A.puck.y-pd.y) < 0.3 && Math.hypot(A.puck.vx, A.puck.vy) < 1.5;
+        const t = frozen ? ahPadHome(pid) : ahBotTarget(pid, near ? A.puck : guess, pd, A.botAim[pid]);
+        ahMovePad(pid, pd, t.x, t.y, ahHalfOf(A.puck.y)===pid ? AH_BOT_MAX : AH_BOT_MAX*0.48, h);
+      } else if(A.pointer && pid===A.myId){
+        ahMovePad(pid, pd, A.pointer.x, A.pointer.y, AH_PAD_MAX, h);
+      } else { pd.vx = 0; pd.vy = 0; }
+    });
+    if(frozen) continue;
+    const authority = A.local.has(A.owner);
+    const pads = [...A.local].map(id=>A.pads[id]);
+    const n0 = ev.length;
+    const conceded = ahStep(A.puck, pads, h, ev);
+    if(ev.length > n0 && ev.slice(n0).includes('hit')) A.localHitT = ahServerNow();
+    if(conceded){
+      A.puck.vx = 0; A.puck.vy = 0;
+      if(authority && A.local.has(conceded)){
+        // il gol lo scrive solo chi lo subisce e comanda il disco
+        A.goalPending = true; A.goalPendingAt = performance.now();
+        ahRegisterGoal(A, conceded);
+      } else {
+        // qui e' solo una previsione: il disco resta sulla linea finche'
+        // l'altro telefono non dice com'e' andata (gol o parata)
+        A.puck.y = conceded==='p0' ? AH_H - AH_PUCK_R : AH_PUCK_R;
+      }
+      break;
+    }
+    const half = ahHalfOf(A.puck.y);
+    if(half !== A.owner && authority){
+      A.owner = half;
+      if(!A.local.has(half)) ahSendTick(A, true, true); // passaggio di consegne all'altro telefono
+    }
+  }
+  if(ev.includes('hit')) ahSound('hit'); else if(ev.includes('wall')) ahSound('wall');
+  // disco fermo contro una sponda o in un angolo per piu' di un secondo:
+  // una piccola spinta verso il centro (sul tavolo vero lo fa l'aria, o una mano)
+  const pk = A.puck, edge = 0.06;
+  const stuck = !frozen && Math.hypot(pk.vx,pk.vy) < 0.08 && (pk.x < AH_PUCK_R+edge || pk.x > 1-AH_PUCK_R-edge || pk.y < AH_PUCK_R+edge || pk.y > AH_H-AH_PUCK_R-edge);
+  if(stuck && A.local.has(A.owner)){
+    A.stuckFor = (A.stuckFor||0) + dt;
+    if(A.stuckFor > 1.2){ const dx = 0.5-pk.x, dy = (pk.y>AH_H/2 ? AH_H*0.75 : AH_H*0.25)-pk.y, d = Math.hypot(dx,dy)||1; pk.vx = dx/d*0.6; pk.vy = dy/d*0.6; A.stuckFor = 0; }
+  } else A.stuckFor = 0;
+  const k = Math.exp(-dt/0.08);
+  A.renderOff.x *= k; A.renderOff.y *= k;
+  A.trail.push({x:A.puck.x, y:A.puck.y}); if(A.trail.length > 6) A.trail.shift();
+  if(!frozen) ahSendTick(A, false);
+}
+function ahFrame(ts){
+  const A = AH;
+  if(!A) return;
+  if(!A.canvas || !A.canvas.isConnected){
+    // la partita non e' piu' a schermo (menu, fine partita): se entro 2 s non
+    // torna un canvas, si staccano anche gli ascolti di rete
+    A.raf = null;
+    setTimeout(()=>{ if(AH===A && !A.raf && (!A.canvas || !A.canvas.isConnected)) ahTeardown(); }, 2000);
+    return;
+  }
+  const dt = Math.min(0.05, Math.max(0, (ts - (A.last||ts))/1000));
+  A.last = ts;
+  ahUpdate(A, dt);
+  ahDraw(A);
+  A.raf = requestAnimationFrame(ahFrame);
+}
+
+// --- Disegno -------------------------------------------------------------------
+function ahView(A, x, y){ return A.myId==='p1' ? {x:1-x, y:AH_H-y} : {x, y}; }
+function ahSizeCanvas(A){
+  const c = A.canvas;
+  if(!c) return;
+  const wrap = c.parentElement;
+  const availW = Math.max(200, wrap.clientWidth);
+  const top = c.getBoundingClientRect().top;
+  const availH = Math.max(260, window.innerHeight - top - 14);
+  const tw = 1 + 2*AH_RAIL, th = AH_H + 2*AH_RAIL;
+  const w = Math.floor(Math.min(availW, availH*tw/th, 480));
+  const h = Math.floor(w*th/tw);
+  const dpr = Math.min(3, window.devicePixelRatio||1);
+  c.style.width = w+'px'; c.style.height = h+'px';
+  c.width = Math.round(w*dpr); c.height = Math.round(h*dpr);
+  A.scale = (w/tw)*dpr; A.dpr = dpr;
+}
+// Sfondo statico (bordo, piano, linee, porte) disegnato una volta sola per
+// misura: ridisegnarlo a ogni fotogramma pesa sui telefoni meno recenti.
+function ahBackground(A){
+  const key = A.canvas.width+'x'+A.canvas.height;
+  if(A.bg && A.bgKey===key) return A.bg;
+  const bg = document.createElement('canvas');
+  bg.width = A.canvas.width; bg.height = A.canvas.height;
+  const g = bg.getContext('2d');
+  const s = A.scale, b = AH_RAIL;
+  g.setTransform(s, 0, 0, s, s*b, s*b);
+  const rr = (x,y,w,h,r)=>{ g.beginPath(); g.moveTo(x+r,y); g.arcTo(x+w,y,x+w,y+h,r); g.arcTo(x+w,y+h,x,y+h,r); g.arcTo(x,y+h,x,y,r); g.arcTo(x,y,x+w,y,r); g.closePath(); };
+  const wood = g.createLinearGradient(0,-b,1,AH_H+b);
+  wood.addColorStop(0,'#7A5230'); wood.addColorStop(0.5,'#5C3A20'); wood.addColorStop(1,'#3E2714');
+  rr(-b,-b,1+2*b,AH_H+2*b,0.07); g.fillStyle = wood; g.fill();
+  const felt = g.createLinearGradient(0,0,1,AH_H);
+  felt.addColorStop(0,'#274539'); felt.addColorStop(0.6,'#1D3730'); felt.addColorStop(1,'#132520');
+  rr(0,0,1,AH_H,0.045); g.fillStyle = felt; g.fill();
+  // fori dell'aria
+  g.fillStyle = 'rgba(241,236,225,0.07)';
+  for(let y=0.05; y<AH_H; y+=0.06) for(let x=0.05; x<1; x+=0.06){ g.beginPath(); g.arc(x,y,0.0055,0,Math.PI*2); g.fill(); }
+  g.strokeStyle = 'rgba(212,175,106,0.55)'; g.lineWidth = 0.008;
+  g.beginPath(); g.moveTo(0,AH_H/2); g.lineTo(1,AH_H/2); g.stroke();
+  g.beginPath(); g.arc(0.5,AH_H/2,0.13,0,Math.PI*2); g.stroke();
+  g.strokeStyle = 'rgba(212,175,106,0.35)';
+  g.beginPath(); g.arc(0.5,0,0.22,0,Math.PI); g.stroke();
+  g.beginPath(); g.arc(0.5,AH_H,0.22,Math.PI,Math.PI*2); g.stroke();
+  // porte (fessure nel bordo)
+  g.fillStyle = '#070D0A';
+  g.fillRect(0.5-AH_GOAL_W/2, -b, AH_GOAL_W, b+0.004);
+  g.fillRect(0.5-AH_GOAL_W/2, AH_H-0.004, AH_GOAL_W, b+0.004);
+  A.bg = bg; A.bgKey = key;
+  return bg;
+}
+function ahDrawPad(g, x, y, mine){
+  const R = AH_PAD_R;
+  const grad = g.createRadialGradient(x-R*0.3, y-R*0.35, R*0.1, x, y, R);
+  if(mine){ grad.addColorStop(0,'#F0B0A4'); grad.addColorStop(0.6,'#D98878'); grad.addColorStop(1,'#8A3A30'); }
+  else { grad.addColorStop(0,'#F4DFAE'); grad.addColorStop(0.6,'#D4AF6A'); grad.addColorStop(1,'#8C6A2E'); }
+  g.fillStyle = 'rgba(0,0,0,0.35)'; g.beginPath(); g.arc(x+0.008, y+0.012, R, 0, Math.PI*2); g.fill();
+  g.fillStyle = grad; g.beginPath(); g.arc(x, y, R, 0, Math.PI*2); g.fill();
+  g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 0.006; g.beginPath(); g.arc(x, y, R*0.55, 0, Math.PI*2); g.stroke();
+  g.fillStyle = mine ? '#B5574A' : '#B08A45'; g.beginPath(); g.arc(x, y, R*0.32, 0, Math.PI*2); g.fill();
+}
+function ahDraw(A){
+  const c = A.canvas, g = A.ctx;
+  if(!c.width) ahSizeCanvas(A);
+  g.setTransform(1,0,0,1,0,0);
+  g.clearRect(0,0,c.width,c.height);
+  g.drawImage(ahBackground(A), 0, 0);
+  const s = A.scale, b = AH_RAIL;
+  g.setTransform(s, 0, 0, s, s*b, s*b);
+  const px = A.puck.x + A.renderOff.x, py = A.puck.y + A.renderOff.y;
+  // scia del disco
+  A.trail.forEach((t,i)=>{
+    const v = ahView(A, t.x, t.y);
+    g.fillStyle = 'rgba(241,236,225,'+(0.04*(i+1))+')';
+    g.beginPath(); g.arc(v.x, v.y, AH_PUCK_R*(0.6+0.06*i), 0, Math.PI*2); g.fill();
+  });
+  const pv = ahView(A, px, py);
+  g.fillStyle = 'rgba(0,0,0,0.35)'; g.beginPath(); g.arc(pv.x+0.006, pv.y+0.009, AH_PUCK_R, 0, Math.PI*2); g.fill();
+  g.fillStyle = '#F1ECE1'; g.beginPath(); g.arc(pv.x, pv.y, AH_PUCK_R, 0, Math.PI*2); g.fill();
+  g.strokeStyle = '#1A2620'; g.lineWidth = 0.008; g.beginPath(); g.arc(pv.x, pv.y, AH_PUCK_R*0.62, 0, Math.PI*2); g.stroke();
+  const meId = A.myId || 'p0';
+  ['p0','p1'].forEach(pid=>{
+    const v = ahView(A, A.pads[pid].x, A.pads[pid].y);
+    ahDrawPad(g, v.x, v.y, pid===meId);
+  });
+  // scritte al centro
+  const now = ahServerNow();
+  let msg = null, sub = null;
+  if(A.flash){
+    const mine = A.flash.by === meId;
+    msg = 'GOL!';
+    sub = A.myId ? (mine ? 'Hai segnato tu' : 'Ha segnato '+nameOf(A.match, A.flash.by)) : nameOf(A.match, A.flash.by);
+  } else if(now < A.freezeUntil){
+    msg = 'Pronti…';
+  } else if(!A.touched && A.myId){
+    sub = 'Trascina il dito nella tua metà campo';
+  }
+  if(msg || sub){
+    // scritte in pixel veri: un carattere da 0.05 unita' ingrandito dalla
+    // trasformazione usciva con le lettere accavallate
+    g.setTransform(1,0,0,1,0,0);
+    const cx = s*(b+0.5), cy = s*(b+AH_H/2), U = s;
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    if(msg){
+      g.font = '700 '+Math.round(U*0.13)+'px Fraunces, serif';
+      g.fillStyle = 'rgba(10,20,16,0.6)'; g.fillText(msg, cx+U*0.005, cy+U*0.005);
+      g.fillStyle = '#D4AF6A'; g.fillText(msg, cx, cy);
+    }
+    if(sub){
+      g.font = '600 '+Math.round(U*0.042)+'px system-ui, -apple-system, sans-serif';
+      g.fillStyle = 'rgba(10,20,16,0.55)'; g.fillRect(cx-U*0.42, cy+U*(msg?0.11:0.09)-U*0.035, U*0.84, U*0.07);
+      g.fillStyle = '#F1ECE1'; g.fillText(sub, cx, cy + U*(msg ? 0.11 : 0.09));
+    }
+  }
+}
+
+// --- Tocco / mouse -------------------------------------------------------------
+function ahBindInput(A, c){
+  if(c._ahBound) return;
+  c._ahBound = true;
+  const toTable = e=>{
+    const r = c.getBoundingClientRect();
+    const tw = 1 + 2*AH_RAIL;
+    const unit = r.width / tw;
+    let x = (e.clientX - r.left)/unit - AH_RAIL;
+    // la manopola un filo sopra il dito, cosi' il dito non la copre
+    let y = (e.clientY - r.top)/unit - AH_RAIL - 0.05;
+    if(A.myId==='p1'){ x = 1-x; y = AH_H-y; }
+    return {x, y};
+  };
+  const move = e=>{
+    if(!AH || !AH.myId) return;
+    e.preventDefault();
+    AH.pointer = toTable(e);
+    AH.touched = true;
+  };
+  c.addEventListener('pointerdown', e=>{ try{ c.setPointerCapture(e.pointerId); }catch(_){} move(e); });
+  c.addEventListener('pointermove', e=>{ if(e.pointerType==='mouse' || e.buttons || e.pressure>0) move(e); });
+}
+window.addEventListener('resize', ()=>{ if(AH && AH.canvas && AH.canvas.isConnected){ ahSizeCanvas(AH); AH.bg = null; } });
+
+function activateAirHockey(match, claim){
+  const canvas = document.getElementById('ah-canvas');
+  if(!canvas || match.phase!=='playing') return;
+  const myId = claim && claim.type==='seat' ? claim.playerId : null;
+  if(!AH || AH.matchId!==match.id || AH.myId!==myId){ ahTeardown(); AH = ahCreate(match, myId); }
+  const A = AH;
+  A.canvas = canvas; A.ctx = canvas.getContext('2d');
+  ahSizeCanvas(A); A.bg = null;
+  ahBindInput(A, canvas);
+  ahOnMatch(A, match);
+  if(!A.raf){ A.last = 0; A.raf = requestAnimationFrame(ahFrame); }
+}
+
+async function maybeSaveAirHockeyHistory(match){
+  if(match.phase!=='ended' || match._historySaved) return;
+  match._historySaved = true;
+  const ranked = match.players.map(p=>({ name:p.name, isBot:p.isBot, goals: match.score[p.id]||0, rank: p.id===match.winnerId?1:2 }));
+  const historyEntry = {
+    id:match.id, date:match.createdAt, endedAt:new Date().toISOString(),
+    game:'airhockey', target: match.target, winner: nameOf(match, match.winnerId),
+    players: ranked, solo: match.players.some(p=>p.isBot)
+  };
+  const history = await getHistory();
+  history.unshift(historyEntry);
+  await saveHistory(history);
+  if(myRoomId){
+    try{ const list=(await getRooms()).filter(s=>s.id!==myRoomId); await saveRooms(list); }catch(e){}
+  }
+}
+function renderAirHockeyMatch(match, claim){
+  const myId = claim.type==='seat' ? claim.playerId : null;
+  const me = myId || 'p0', opp = ahOther(me);
+  const nm = id => esc(nameOf(match, id));
+  if(match.phase==='ended'){
+    maybeSaveAirHockeyHistory(match);
+    maybeShowLoserPopup(match.id, 'ah-end', myId, match.players.map(p=>p.id).filter(id=>id!==match.winnerId));
+    return `<div class="card">
+      <h2>Air hockey finito!</h2>
+      <p class="hint">${myId===match.winnerId ? '<b>Hai vinto tu</b>' : (myId ? 'Hai perso: vince <b>'+nm(match.winnerId)+'</b>' : 'Vince <b>'+nm(match.winnerId)+'</b>')} ${match.score[match.winnerId]}–${match.score[ahOther(match.winnerId)]}</p>
+      <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="backToLobbyFromEnd()">Torna al menu</button>
+    </div>`;
+  }
+  return `<div class="card ah-card">
+    <div class="toolbar"><span>Air hockey · primo a ${match.target||AH_TARGET}</span><button class="btn-danger btn-small" onclick="abandonMatch()">Abbandona</button></div>
+    <div class="ah-score">
+      <span class="ah-name"><i class="ah-dot opp"></i>${nm(opp)}</span>
+      <span class="ah-num">${match.score[opp]||0}<span class="ah-dash">–</span>${match.score[me]||0}</span>
+      <span class="ah-name me">${nm(me)}<i class="ah-dot me"></i></span>
+    </div>
+    <div class="ah-wrap"><canvas id="ah-canvas"></canvas></div>
+  </div>`;
+}
+
 function f4ColorHex(color){ return color==='R' ? '#D64550' : '#E8B94A'; }
 function f4ColorName(color){ return color==='R' ? 'Rosso' : 'Giallo'; }
 
