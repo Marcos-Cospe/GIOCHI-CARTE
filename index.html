@@ -256,6 +256,14 @@ body.force-share.in-match #sync-panel{display:block !important;}
 .ah-dot{display:inline-block;width:12px;height:12px;border-radius:50%;flex:0 0 auto;}
 .ah-dot.me{background:#D98878;} .ah-dot.opp{background:#D4AF6A;}
 .ah-wrap{display:flex;justify-content:center;}
+.ah-full{position:fixed;inset:0;z-index:900;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(ellipse at 50% 40%, #2A2A28 0%, #121211 70%);
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);}
+.ah-exit{position:absolute;top:calc(env(safe-area-inset-top) + 6px);left:calc(env(safe-area-inset-left) + 6px);
+  width:34px;height:34px;border-radius:50%;padding:0;font-size:16px;line-height:34px;
+  background:rgba(0,0,0,0.55);color:#F1ECE1;border:1px solid rgba(241,236,225,0.25);box-shadow:none;}
+body.ah-on{overflow:hidden;}
+body.ah-on #chat-persistent{display:none;}
 #ah-canvas{display:block;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;border-radius:10px;}
 .poker-toolbar{margin-bottom:6px !important;}
 .poker-toolbar span{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -3289,6 +3297,7 @@ async function render(force){
   if(match){
     document.body.classList.add('in-match');
     document.body.classList.toggle('risiko-match', match.game==='risiko');
+    document.body.classList.toggle('ah-on', match.game==='airhockey' && match.phase==='playing');
     // in una sala il posto e' gia' noto: chi sei lo hai dichiarato entrando
     let claim = await getEffectiveClaim(match);
     if(myGen!==renderGen) return;
@@ -3350,6 +3359,7 @@ async function render(force){
 
   document.body.classList.remove('in-match');
   document.body.classList.remove('risiko-match');
+  document.body.classList.remove('ah-on');
   { const cp = document.getElementById('chat-persistent'); if(cp && cp.innerHTML){ cp.innerHTML=''; delete cp.dataset.matchId; } }
 
   // 2) sono dentro una sala che non ha ancora avviato
@@ -13590,7 +13600,6 @@ const AH_BOT_MAX = 2.3;      // il bot e' piu' lento di te (6): si puo' battere
 const AH_WALL_E = 0.88, AH_HIT_E = 0.9;
 const AH_GOAL_PAUSE = 1500;  // ms di pausa dopo un gol
 const AH_SEND_MS = 40;       // online: al massimo 25 invii al secondo
-const AH_RAIL = 0.055;       // bordo del tavolo attorno al piano
 
 function buildAirHockeyMatch(id, names){
   const players = names.map((name,i)=>({id:'p'+i, name, isBot:false}));
@@ -13686,6 +13695,18 @@ function ahBotTarget(pid, puck, me, aim){
   const M = flip ? {x:1-me.x, y:AH_H-me.y} : me;
   let tx, ty;
   const reach = AH_PUCK_R + AH_PAD_R;
+  const nearSide = P.x < AH_PUCK_R + 0.1 || P.x > 1 - AH_PUCK_R - 0.1;
+  if(P.y < 0.17 && nearSide && Math.hypot(P.vx, P.vy) < 1){
+    // disco in un angolo: "dietro" al disco non c'e' posto (sarebbe fuori dal
+    // tavolo) e il bot lo schiacciava contro le sponde per sempre. Si porta
+    // dal lato interno e colpisce verso l'angolo: il disco rimbalza fuori.
+    const ix = 0.5 - P.x, iy = AH_H/2 - P.y, il = Math.hypot(ix, iy) || 1;
+    const nx = ix/il, ny = iy/il;
+    const inside = (M.x-P.x)*nx + (M.y-P.y)*ny > reach*0.8;
+    if(inside){ tx = P.x - nx*0.06; ty = P.y - ny*0.06; }
+    else { tx = P.x + nx*(reach+0.04); ty = P.y + ny*(reach+0.04); }
+    return flip ? {x:1-tx, y:AH_H-ty} : {x:tx, y:ty};
+  }
   if(P.y < AH_H/2 - AH_PUCK_R && (P.vy > -0.6 || P.y < 0.3)){
     const ax = aim.x - P.x, ay = AH_H - P.y, al = Math.hypot(ax,ay) || 1;
     const dx = ax/al, dy = ay/al;
@@ -13938,7 +13959,9 @@ function ahUpdate(A, dt){
         // vicino a un disco lento usa la posizione vera (per colpirlo davvero);
         // in parata no, se no l'imprecisione voluta spariva all'ultimo istante
         const near = Math.hypot(A.puck.x-pd.x, A.puck.y-pd.y) < 0.3 && Math.hypot(A.puck.vx, A.puck.vy) < 1.5;
-        const t = frozen ? ahPadHome(pid) : ahBotTarget(pid, near ? A.puck : guess, pd, A.botAim[pid]);
+        // disco fermo da un po' contro una sponda: il bot si scosta, cosi' la
+        // spinta che lo libera (piu' sotto) non glielo rimanda addosso
+        const t = (frozen || (A.stuckFor||0) > 0.6) ? ahPadHome(pid) : ahBotTarget(pid, near ? A.puck : guess, pd, A.botAim[pid]);
         ahMovePad(pid, pd, t.x, t.y, ahHalfOf(A.puck.y)===pid ? AH_BOT_MAX : AH_BOT_MAX*0.48, h);
       } else if(A.pointer && pid===A.myId){
         ahMovePad(pid, pd, A.pointer.x, A.pointer.y, AH_PAD_MAX, h);
@@ -14008,21 +14031,31 @@ function ahFrame(ts){
 }
 
 // --- Disegno -------------------------------------------------------------------
+// Tavolo come quelli veri da salotto: piano bianco forato, linee rosse,
+// sponde di legno chiaro, testate nere con la porta e, sopra la porta, il
+// contapunti a cursore (0..7). Testate (AH_RY) piu' spesse delle sponde
+// (AH_RX) perche' ci sta il contapunti.
+const AH_RX = 0.06, AH_RY = 0.2;
 function ahView(A, x, y){ return A.myId==='p1' ? {x:1-x, y:AH_H-y} : {x, y}; }
 function ahSizeCanvas(A){
   const c = A.canvas;
   if(!c) return;
   const wrap = c.parentElement;
-  const availW = Math.max(200, wrap.clientWidth);
-  const top = c.getBoundingClientRect().top;
-  const availH = Math.max(260, window.innerHeight - top - 14);
-  const tw = 1 + 2*AH_RAIL, th = AH_H + 2*AH_RAIL;
-  const w = Math.floor(Math.min(availW, availH*tw/th, 480));
+  // a tutto schermo: il contenitore e' grande quanto la finestra (meno le
+  // zone di sicurezza dell'iPhone, gia' tolte con il padding)
+  const availW = Math.max(200, wrap.clientWidth - 8);
+  const availH = Math.max(260, wrap.clientHeight - 8);
+  const tw = 1 + 2*AH_RX, th = AH_H + 2*AH_RY;
+  const w = Math.floor(Math.min(availW, availH*tw/th, 900));
   const h = Math.floor(w*th/tw);
   const dpr = Math.min(3, window.devicePixelRatio||1);
   c.style.width = w+'px'; c.style.height = h+'px';
   c.width = Math.round(w*dpr); c.height = Math.round(h*dpr);
   A.scale = (w/tw)*dpr; A.dpr = dpr;
+}
+function ahRoundRect(g, x, y, w, h, r){
+  r = Math.min(r, w/2, h/2);
+  g.beginPath(); g.moveTo(x+r,y); g.arcTo(x+w,y,x+w,y+h,r); g.arcTo(x+w,y+h,x,y+h,r); g.arcTo(x,y+h,x,y,r); g.arcTo(x,y,x+w,y,r); g.closePath();
 }
 // Sfondo statico (bordo, piano, linee, porte) disegnato una volta sola per
 // misura: ridisegnarlo a ogni fotogramma pesa sui telefoni meno recenti.
@@ -14032,40 +14065,115 @@ function ahBackground(A){
   const bg = document.createElement('canvas');
   bg.width = A.canvas.width; bg.height = A.canvas.height;
   const g = bg.getContext('2d');
-  const s = A.scale, b = AH_RAIL;
-  g.setTransform(s, 0, 0, s, s*b, s*b);
-  const rr = (x,y,w,h,r)=>{ g.beginPath(); g.moveTo(x+r,y); g.arcTo(x+w,y,x+w,y+h,r); g.arcTo(x+w,y+h,x,y+h,r); g.arcTo(x,y+h,x,y,r); g.arcTo(x,y,x+w,y,r); g.closePath(); };
-  const wood = g.createLinearGradient(0,-b,1,AH_H+b);
-  wood.addColorStop(0,'#7A5230'); wood.addColorStop(0.5,'#5C3A20'); wood.addColorStop(1,'#3E2714');
-  rr(-b,-b,1+2*b,AH_H+2*b,0.07); g.fillStyle = wood; g.fill();
-  const felt = g.createLinearGradient(0,0,1,AH_H);
-  felt.addColorStop(0,'#274539'); felt.addColorStop(0.6,'#1D3730'); felt.addColorStop(1,'#132520');
-  rr(0,0,1,AH_H,0.045); g.fillStyle = felt; g.fill();
-  // fori dell'aria
-  g.fillStyle = 'rgba(241,236,225,0.07)';
-  for(let y=0.05; y<AH_H; y+=0.06) for(let x=0.05; x<1; x+=0.06){ g.beginPath(); g.arc(x,y,0.0055,0,Math.PI*2); g.fill(); }
-  g.strokeStyle = 'rgba(212,175,106,0.55)'; g.lineWidth = 0.008;
-  g.beginPath(); g.moveTo(0,AH_H/2); g.lineTo(1,AH_H/2); g.stroke();
-  g.beginPath(); g.arc(0.5,AH_H/2,0.13,0,Math.PI*2); g.stroke();
-  g.strokeStyle = 'rgba(212,175,106,0.35)';
-  g.beginPath(); g.arc(0.5,0,0.22,0,Math.PI); g.stroke();
-  g.beginPath(); g.arc(0.5,AH_H,0.22,Math.PI,Math.PI*2); g.stroke();
-  // porte (fessure nel bordo)
-  g.fillStyle = '#070D0A';
-  g.fillRect(0.5-AH_GOAL_W/2, -b, AH_GOAL_W, b+0.004);
-  g.fillRect(0.5-AH_GOAL_W/2, AH_H-0.004, AH_GOAL_W, b+0.004);
+  const s = A.scale, RX = AH_RX, RY = AH_RY, H = AH_H;
+  g.setTransform(s, 0, 0, s, s*RX, s*RY);
+  // sponde di legno chiaro (tutto il tavolo, poi sopra le testate nere)
+  const wood = g.createLinearGradient(-RX, 0, 1+RX, 0);
+  wood.addColorStop(0,'#8E5E2B'); wood.addColorStop(0.08,'#D9A866'); wood.addColorStop(0.5,'#C8924F'); wood.addColorStop(0.92,'#D9A866'); wood.addColorStop(1,'#8E5E2B');
+  ahRoundRect(g, -RX, -RY+0.04, 1+2*RX, H+2*RY-0.08, 0.05); g.fillStyle = wood; g.fill();
+  g.strokeStyle = 'rgba(110,70,30,0.25)'; g.lineWidth = 0.004;
+  for(let i=0;i<6;i++){ const yy = 0.1 + i*H/6; g.beginPath(); g.moveTo(-RX*0.7, yy); g.bezierCurveTo(-RX*0.3, yy+0.08, -RX*0.6, yy+0.16, -RX*0.4, yy+0.24); g.stroke(); g.beginPath(); g.moveTo(1+RX*0.7, yy+0.05); g.bezierCurveTo(1+RX*0.3, yy+0.13, 1+RX*0.6, yy+0.21, 1+RX*0.4, yy+0.29); g.stroke(); }
+  // testate nere con gli angoli arrotondati che abbracciano le sponde
+  const blackEnd = (y0, h, top)=>{
+    const gr = g.createLinearGradient(0, y0, 0, y0+h);
+    if(top){ gr.addColorStop(0,'#3A3A3A'); gr.addColorStop(0.35,'#1C1C1C'); gr.addColorStop(1,'#0E0E0E'); }
+    else { gr.addColorStop(0,'#0E0E0E'); gr.addColorStop(0.65,'#1C1C1C'); gr.addColorStop(1,'#3A3A3A'); }
+    ahRoundRect(g, -RX-0.012, y0, 1+2*RX+0.024, h, 0.09); g.fillStyle = gr; g.fill();
+  };
+  blackEnd(-RY-0.005, RY+0.11, true);
+  blackEnd(H-0.105, RY+0.11, false);
+  // piano bianco con i fori dell'aria
+  const top = g.createLinearGradient(0, 0, 1, H);
+  top.addColorStop(0,'#FBFBF8'); top.addColorStop(1,'#E8E9E4');
+  ahRoundRect(g, 0, 0, 1, H, 0.03); g.fillStyle = top; g.fill();
+  g.save(); ahRoundRect(g, 0, 0, 1, H, 0.03); g.clip();
+  g.fillStyle = 'rgba(70,70,70,0.45)';
+  for(let y=0.04; y<H; y+=0.055) for(let x=0.04; x<1; x+=0.055){ g.beginPath(); g.arc(x, y, 0.0042, 0, Math.PI*2); g.fill(); }
+  // linee grigie di zona e linea centrale
+  g.strokeStyle = 'rgba(95,95,95,0.55)'; g.lineWidth = 0.006;
+  [H/2-0.3, H/2+0.3].forEach(yy=>{ g.beginPath(); g.moveTo(0,yy); g.lineTo(1,yy); g.stroke(); });
+  g.strokeStyle = '#C8383A'; g.lineWidth = 0.007;
+  g.beginPath(); g.moveTo(0,H/2); g.lineTo(1,H/2); g.stroke();
+  // cerchio centrale con il bersaglio
+  g.beginPath(); g.arc(0.5, H/2, 0.14, 0, Math.PI*2); g.stroke();
+  g.strokeStyle = 'rgba(200,56,58,0.45)'; g.beginPath(); g.arc(0.5, H/2, 0.115, 0, Math.PI*2); g.stroke();
+  // cerchi d'ingaggio (due per meta' campo) col punto al centro
+  g.strokeStyle = '#C8383A'; g.lineWidth = 0.006;
+  [[0.27, H*0.22],[0.73, H*0.36],[0.73, H*0.78],[0.27, H*0.64]].forEach(([cx,cy])=>{
+    g.beginPath(); g.arc(cx, cy, 0.11, 0, Math.PI*2); g.stroke();
+    g.fillStyle = '#C8383A'; g.beginPath(); g.arc(cx, cy, 0.008, 0, Math.PI*2); g.fill();
+  });
+  // area di porta: semicerchio davanti a ciascuna porta
+  g.beginPath(); g.arc(0.5, 0, 0.22, 0, Math.PI); g.stroke();
+  g.beginPath(); g.arc(0.5, H, 0.22, Math.PI, Math.PI*2); g.stroke();
+  g.restore();
+  // ombra interna lungo il bordo del piano
+  g.strokeStyle = 'rgba(0,0,0,0.18)'; g.lineWidth = 0.01; ahRoundRect(g, 0.005, 0.005, 0.99, H-0.01, 0.03); g.stroke();
+  // porte: fessure nere nella testata
+  const slot = (y0, h)=>{
+    const gr = g.createLinearGradient(0, y0, 0, y0+h);
+    gr.addColorStop(0,'#000'); gr.addColorStop(1,'#050505');
+    g.fillStyle = gr; ahRoundRect(g, 0.5-AH_GOAL_W/2, y0, AH_GOAL_W, h, 0.012); g.fill();
+  };
+  slot(-0.06, 0.065);
+  slot(H-0.005, 0.065);
+  // contapunti: listello di legno scuro sopra (e sotto) la porta, coi numeri
+  // disegnati dopo (cambiano a ogni gol) in ahDrawCounters
+  const strip = (y0)=>{
+    const gr = g.createLinearGradient(0, y0, 0, y0+0.07);
+    gr.addColorStop(0,'#7A4A28'); gr.addColorStop(1,'#4E2C14');
+    ahRoundRect(g, 0.2, y0, 0.82, 0.07, 0.012); g.fillStyle = gr; g.fill();
+    g.strokeStyle = 'rgba(0,0,0,0.6)'; g.lineWidth = 0.004; g.stroke();
+  };
+  strip(-RY+0.035);
+  strip(H+RY-0.105);
   A.bg = bg; A.bgKey = key;
   return bg;
 }
+// manopola vista dall'alto: base rossa, bordo scuro, impugnatura al centro
 function ahDrawPad(g, x, y, mine){
   const R = AH_PAD_R;
-  const grad = g.createRadialGradient(x-R*0.3, y-R*0.35, R*0.1, x, y, R);
-  if(mine){ grad.addColorStop(0,'#F0B0A4'); grad.addColorStop(0.6,'#D98878'); grad.addColorStop(1,'#8A3A30'); }
-  else { grad.addColorStop(0,'#F4DFAE'); grad.addColorStop(0.6,'#D4AF6A'); grad.addColorStop(1,'#8C6A2E'); }
-  g.fillStyle = 'rgba(0,0,0,0.35)'; g.beginPath(); g.arc(x+0.008, y+0.012, R, 0, Math.PI*2); g.fill();
-  g.fillStyle = grad; g.beginPath(); g.arc(x, y, R, 0, Math.PI*2); g.fill();
-  g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 0.006; g.beginPath(); g.arc(x, y, R*0.55, 0, Math.PI*2); g.stroke();
-  g.fillStyle = mine ? '#B5574A' : '#B08A45'; g.beginPath(); g.arc(x, y, R*0.32, 0, Math.PI*2); g.fill();
+  g.fillStyle = 'rgba(0,0,0,0.28)'; g.beginPath(); g.arc(x+0.01, y+0.014, R, 0, Math.PI*2); g.fill();
+  const base = g.createRadialGradient(x-R*0.3, y-R*0.35, R*0.15, x, y, R);
+  base.addColorStop(0,'#FF6B5E'); base.addColorStop(0.65,'#E0281E'); base.addColorStop(1,'#9C130C');
+  g.fillStyle = base; g.beginPath(); g.arc(x, y, R, 0, Math.PI*2); g.fill();
+  g.strokeStyle = 'rgba(90,10,6,0.55)'; g.lineWidth = 0.006; g.beginPath(); g.arc(x, y, R*0.72, 0, Math.PI*2); g.stroke();
+  const knob = g.createRadialGradient(x-R*0.15, y-R*0.2, R*0.05, x, y, R*0.42);
+  knob.addColorStop(0,'#FF9A8F'); knob.addColorStop(0.6,'#E8372B'); knob.addColorStop(1,'#B01A12');
+  g.fillStyle = 'rgba(0,0,0,0.25)'; g.beginPath(); g.arc(x+0.004, y+0.006, R*0.42, 0, Math.PI*2); g.fill();
+  g.fillStyle = knob; g.beginPath(); g.arc(x, y, R*0.42, 0, Math.PI*2); g.fill();
+  // la tua manopola ha un filo d'oro attorno, per distinguerla a colpo d'occhio
+  if(mine){ g.strokeStyle = '#D4AF6A'; g.lineWidth = 0.007; g.beginPath(); g.arc(x, y, R-0.0035, 0, Math.PI*2); g.stroke(); }
+}
+// contapunti: cursore sul numero dei gol, nome del giocatore a sinistra
+function ahDrawCounters(A, g){
+  const s = A.scale, X = x=>s*(AH_RX+x), Y = y=>s*(AH_RY+y), U = s;
+  const m = A.match, meId = A.myId || 'p0', opp = ahOther(meId);
+  const target = m.target || AH_TARGET;
+  const rows = [ { pid: opp, y0: -AH_RY+0.035 }, { pid: meId, y0: AH_H+AH_RY-0.105 } ];
+  g.setTransform(1,0,0,1,0,0);
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  rows.forEach(r=>{
+    const score = (m.score && m.score[r.pid]) || 0;
+    const cw = 0.82/(target+1), cy = Y(r.y0+0.035);
+    for(let i=0;i<=target;i++){
+      const cx = X(0.2 + cw*(i+0.5));
+      if(i===score){
+        const gr = g.createLinearGradient(0, Y(r.y0+0.008), 0, Y(r.y0+0.062));
+        gr.addColorStop(0,'#F3DEA8'); gr.addColorStop(1,'#B8913F');
+        g.fillStyle = gr; ahRoundRect(g, cx-U*cw*0.42, Y(r.y0+0.008), U*cw*0.84, U*0.054, U*0.01); g.fill();
+      }
+      g.font = '700 '+Math.round(U*0.04)+'px "IBM Plex Mono", ui-monospace, monospace';
+      g.fillStyle = i===score ? '#3A220E' : 'rgba(241,236,225,0.75)';
+      g.fillText(String(i), cx, cy+U*0.002);
+    }
+    let name = nameOf(m, r.pid); if(name.length>8) name = name.slice(0,7)+'…';
+    g.font = '600 '+Math.round(U*0.036)+'px system-ui, -apple-system, sans-serif';
+    g.fillStyle = r.pid===meId ? '#E9C98A' : '#F1ECE1';
+    g.textAlign = 'center';
+    g.fillText(name, X(0.075), cy);
+    g.textAlign = 'center';
+  });
 }
 function ahDraw(A){
   const c = A.canvas, g = A.ctx;
@@ -14073,19 +14181,23 @@ function ahDraw(A){
   g.setTransform(1,0,0,1,0,0);
   g.clearRect(0,0,c.width,c.height);
   g.drawImage(ahBackground(A), 0, 0);
-  const s = A.scale, b = AH_RAIL;
-  g.setTransform(s, 0, 0, s, s*b, s*b);
+  ahDrawCounters(A, g);
+  const s = A.scale;
+  g.setTransform(s, 0, 0, s, s*AH_RX, s*AH_RY);
   const px = A.puck.x + A.renderOff.x, py = A.puck.y + A.renderOff.y;
   // scia del disco
   A.trail.forEach((t,i)=>{
     const v = ahView(A, t.x, t.y);
-    g.fillStyle = 'rgba(241,236,225,'+(0.04*(i+1))+')';
+    g.fillStyle = 'rgba(200,40,30,'+(0.035*(i+1))+')';
     g.beginPath(); g.arc(v.x, v.y, AH_PUCK_R*(0.6+0.06*i), 0, Math.PI*2); g.fill();
   });
-  const pv = ahView(A, px, py);
-  g.fillStyle = 'rgba(0,0,0,0.35)'; g.beginPath(); g.arc(pv.x+0.006, pv.y+0.009, AH_PUCK_R, 0, Math.PI*2); g.fill();
-  g.fillStyle = '#F1ECE1'; g.beginPath(); g.arc(pv.x, pv.y, AH_PUCK_R, 0, Math.PI*2); g.fill();
-  g.strokeStyle = '#1A2620'; g.lineWidth = 0.008; g.beginPath(); g.arc(pv.x, pv.y, AH_PUCK_R*0.62, 0, Math.PI*2); g.stroke();
+  // disco rosso con gli anelli chiari, come quello vero
+  const pv = ahView(A, px, py), R = AH_PUCK_R;
+  g.fillStyle = 'rgba(0,0,0,0.25)'; g.beginPath(); g.arc(pv.x+0.006, pv.y+0.009, R, 0, Math.PI*2); g.fill();
+  g.fillStyle = '#C62E22'; g.beginPath(); g.arc(pv.x, pv.y, R, 0, Math.PI*2); g.fill();
+  g.strokeStyle = '#F6D9D2'; g.lineWidth = R*0.16;
+  g.beginPath(); g.arc(pv.x, pv.y, R*0.68, 0, Math.PI*2); g.stroke();
+  g.beginPath(); g.arc(pv.x, pv.y, R*0.3, 0, Math.PI*2); g.stroke();
   const meId = A.myId || 'p0';
   ['p0','p1'].forEach(pid=>{
     const v = ahView(A, A.pads[pid].x, A.pads[pid].y);
@@ -14107,17 +14219,18 @@ function ahDraw(A){
     // scritte in pixel veri: un carattere da 0.05 unita' ingrandito dalla
     // trasformazione usciva con le lettere accavallate
     g.setTransform(1,0,0,1,0,0);
-    const cx = s*(b+0.5), cy = s*(b+AH_H/2), U = s;
+    const cx = s*(AH_RX+0.5), cy = s*(AH_RY+AH_H/2), U = s;
     g.textAlign = 'center'; g.textBaseline = 'middle';
     if(msg){
-      g.font = '700 '+Math.round(U*0.13)+'px Fraunces, serif';
-      g.fillStyle = 'rgba(10,20,16,0.6)'; g.fillText(msg, cx+U*0.005, cy+U*0.005);
-      g.fillStyle = '#D4AF6A'; g.fillText(msg, cx, cy);
+      g.font = '800 '+Math.round(U*0.14)+'px Fraunces, serif';
+      g.lineWidth = U*0.012; g.strokeStyle = '#FFFFFF'; g.lineJoin = 'round';
+      g.strokeText(msg, cx, cy);
+      g.fillStyle = '#C62E22'; g.fillText(msg, cx, cy);
     }
     if(sub){
       g.font = '600 '+Math.round(U*0.042)+'px system-ui, -apple-system, sans-serif';
-      g.fillStyle = 'rgba(10,20,16,0.55)'; g.fillRect(cx-U*0.42, cy+U*(msg?0.11:0.09)-U*0.035, U*0.84, U*0.07);
-      g.fillStyle = '#F1ECE1'; g.fillText(sub, cx, cy + U*(msg ? 0.11 : 0.09));
+      g.fillStyle = 'rgba(20,20,20,0.72)'; ahRoundRect(g, cx-U*0.42, cy+U*(msg?0.115:0.09)-U*0.038, U*0.84, U*0.076, U*0.02); g.fill();
+      g.fillStyle = '#FFFFFF'; g.fillText(sub, cx, cy + U*(msg ? 0.115 : 0.09));
     }
   }
 }
@@ -14135,11 +14248,11 @@ function ahBindInput(A, c){
     if(!cur) return null;
     const r = cur.getBoundingClientRect();
     if(r.width < 10 || r.height < 10) return null;
-    const tw = 1 + 2*AH_RAIL;
+    const tw = 1 + 2*AH_RX;
     const unit = r.width / tw;
-    let x = (e.clientX - r.left)/unit - AH_RAIL;
+    let x = (e.clientX - r.left)/unit - AH_RX;
     // la manopola un filo sopra il dito, cosi' il dito non la copre
-    let y = (e.clientY - r.top)/unit - AH_RAIL - 0.05;
+    let y = (e.clientY - r.top)/unit - AH_RY - 0.05;
     if(A.myId==='p1'){ x = 1-x; y = AH_H-y; }
     return {x, y};
   };
@@ -14202,14 +14315,11 @@ function renderAirHockeyMatch(match, claim){
       <button class="btn-primary" style="width:100%;margin-top:12px;" onclick="backToLobbyFromEnd()">Torna al menu</button>
     </div>`;
   }
-  return `<div class="card ah-card">
-    <div class="toolbar"><span>Air hockey · primo a ${match.target||AH_TARGET}</span><button class="btn-danger btn-small" onclick="abandonMatch()">Abbandona</button></div>
-    <div class="ah-score">
-      <span class="ah-name"><i class="ah-dot opp"></i>${nm(opp)}</span>
-      <span class="ah-num">${match.score[opp]||0}<span class="ah-dash">–</span>${match.score[me]||0}</span>
-      <span class="ah-name me">${nm(me)}<i class="ah-dot me"></i></span>
-    </div>
-    <div class="ah-wrap"><canvas id="ah-canvas"></canvas></div>
+  // A tutto schermo: niente intestazione ne' barre, solo il tavolo (il
+  // punteggio e' sul contapunti sopra le porte) e una ✕ per uscire.
+  return `<div class="ah-full">
+    <canvas id="ah-canvas" aria-label="Air hockey: ${nm(opp)} ${match.score[opp]||0}, ${nm(me)} ${match.score[me]||0}"></canvas>
+    <button class="ah-exit" onclick="abandonMatch()" title="Abbandona" aria-label="Abbandona la partita">✕</button>
   </div>`;
 }
 

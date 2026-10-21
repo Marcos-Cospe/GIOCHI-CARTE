@@ -41,7 +41,7 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 
 ---
 
-## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v54`)
+## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v55`)
 
 **Giochi** (gruppi come in `GAME_CATEGORIES`):
 - *Carte*: Bisca, Scopa (anche Scopone), Briscola, Vecia, Cava Camisa, UNO,
@@ -88,6 +88,11 @@ file**: `index.html`. Pubblicata su GitHub Pages:
   nel turno, altrimenti rimette la carta e pesca dal mazzo.
 - **Air hockey** (ottobre 2026): contro il bot o online in 2, primo a 7 gol.
   Canvas a 60 fps, tocco a dito nella propria metà campo; vedi §3 Air hockey.
+  **A tutto schermo** (`.ah-full`, classe `body.ah-on`, ✕ in alto a sinistra
+  per abbandonare) e disegnato come il tavolino della foto del proprietario:
+  piano bianco forato, linee rosse, sponde di legno chiaro, testate nere,
+  manopole e disco rossi (la tua manopola ha un filo d'oro), contapunti 0-7
+  a cursore sulla testata sopra ogni porta (`ahDrawCounters`).
 - **Bot del Poker rifatti**: decidono sull'equità simulata (vedi §3 Poker).
   Prima puntavano/rilanciavano nell'1% delle decisioni e chi puntava sempre il
   piatto vinceva l'85% delle mani; ora 14-16% e chi punta sempre non guadagna
@@ -194,7 +199,11 @@ fotogramma con `o` = nuovo padrone). Chi riceve porta avanti il fotogramma
 con l'orologio comune (`.info/serverTimeOffset`). Il gol lo scrive chi lo
 subisce (`ahRegisterGoal`). Con un bot in sala lo muove il primo umano.
 Coordinate: larghezza 1, lunghezza `AH_H`=1.6; p0 difende in basso, p1 in
-alto; la vista di p1 è girata.
+alto; la vista di p1 è girata. Bordo disegnato: sponde `AH_RX`, testate
+`AH_RY` (più spesse: c'è il contapunti). Il bot ha una regola per il disco
+in un angolo (si mette dal lato interno e colpisce verso l'angolo) e si
+scosta quando il disco è fermo contro una sponda (`stuckFor`), altrimenti lo
+schiacciava nell'angolo per sempre.
 **Il canvas è sempre lo stesso elemento**: a ogni `render()` (gol)
 `activateAirHockey` rimette al suo posto quello vecchio. Motivo: Safari manda i
 movimenti del dito all'elemento su cui il tocco è iniziato anche dopo che è
@@ -327,6 +336,9 @@ dispatch in `render()` · `stateKeyOf` · esclusione in `packMatch` e
   partita di soli bot si ferma lì (comportamento storico).
 - **Scacchi in orizzontale**: scacchiera larga solo ~130 px (stesso difetto
   corretto per la Dama con `.dama-board`); da sistemare allo stesso modo.
+- **Air hockey in orizzontale**: il tavolo resta in piedi e piccolo (alto
+  quanto lo schermo). Proposta: girarlo di 90° quando il telefono è
+  orizzontale (porte a sinistra/destra, contapunti sui lati).
 - **Schermo orizzontale**: il tavolo resta piccolo (altezza max 50% dello
   schermo), comune a tutti i giochi.
 - **Scala 40 su schermi da 360 px**: sbordo orizzontale di ~7 px già presente
