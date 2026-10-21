@@ -41,7 +41,7 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 
 ---
 
-## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v53`)
+## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v54`)
 
 **Giochi** (gruppi come in `GAME_CATEGORIES`):
 - *Carte*: Bisca, Scopa (anche Scopone), Briscola, Vecia, Cava Camisa, UNO,
@@ -246,7 +246,8 @@ Motore autonomo (`buildJoputaMatch`, `joputaCanPlay`, `joputaApplyPlay`,
 - **Air hockey**: autorità sul disco per metà campo invece di un telefono
   "padrone" unico, perché così i colpi sono calcolati senza ritardo sul
   telefono di chi colpisce. Bot volutamente più lento di te (manopola 2,3
-  contro 6) e con ~0,25 s di reazione; porta larga 0,42.
+  contro 6) e con ~0,25 s di reazione; porta larga 0,42. Manopole con raggio
+  0,085 (erano 0,072: ingrandite su richiesta del proprietario).
 - **Ventaglio avversari**: massimo 9 dorsi, il numero esatto nel pallino.
 - **Niente `filter` animato** sulle carte da evidenziare (ritagli in Safari):
   si usano `box-shadow` e `transform`.
