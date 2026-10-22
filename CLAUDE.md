@@ -41,7 +41,7 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 
 ---
 
-## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v58`)
+## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v59`)
 
 **Giochi** (gruppi come in `GAME_CATEGORIES`):
 - *Carte*: Bisca, Scopa (anche Scopone), Briscola, Vecia, Cava Camisa, UNO,
@@ -194,8 +194,12 @@ flop / 43% al turn e rilanciano di più (`streetAggressor`).
 **Mouse bloccato (PC)**: il clic sul tavolo chiede Pointer Lock sul canvas
 e lo schermo intero; bloccata, la manopola si muove con `movementX/Y` a partire
 da dove si trova e il punto virtuale è tenuto nella propria metà
-(`ahClampPad`). Esc sblocca (lo impone il browser): da solo va in pausa
-(`A.paused`, il ciclo disegna ma non calcola), online no. Riclic = riprende.
+(`ahClampPad`). Col mouse **non bloccato la manopola non segue la freccia**
+(prima la seguiva anche senza clic: si giocava senza blocco e la freccia usciva
+lo stesso). `ahNeedsLock(A)` = si usa il mouse (`A.mouse`, dall'ultimo
+`pointerType`), non bloccato e il browser non ha rifiutato (`A.lockFailed`:
+in quel caso si torna alla freccia libera). Da solo, finché serve il clic la
+partita è ferma (`ahHeld`: all'inizio e dopo Esc, "Pausa"); online no.
 Non passa da `render()` a ogni istante: `activateAirHockey` (chiamato dopo
 l'`innerHTML`) aggancia al `<canvas id="ah-canvas">` un motore `AH` che vive
 fuori da `#app` e sopravvive ai ridisegni (`ahFrame` con

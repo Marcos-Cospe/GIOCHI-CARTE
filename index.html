@@ -13835,6 +13835,7 @@ function ahCreate(match, myId){
     puck: ahServeState('p0'), owner:'p0',
     pads: { p0: ahPadHome('p0'), p1: ahPadHome('p1') },
     goalsSeen: -1, freezeUntil: 0, goalPending: false, flash: null,
+    mouse: AH_MOUSE || document.body.classList.contains('has-mouse'), lockFailed: false,
     pointer: null, touched: false, lastSend: 0, lastPadSend: {}, seq: 0, offset: 0,
     remote: {}, lastSeq: {}, renderOff: {x:0, y:0}, localHitT: 0, trail: [],
     refs: [], raf: null, last: 0, bg: null, bgKey: ''
@@ -14084,7 +14085,7 @@ function ahFrame(ts){
   A.last = ts;
   // un errore in un fotogramma non deve fermare il gioco: si rimette a posto
   // cio' che non torna e si va avanti col fotogramma dopo
-  try{ if(!A.paused) ahUpdate(A, dt); ahDraw(A); }
+  try{ if(!ahHeld(A)) ahUpdate(A, dt); ahDraw(A); }
   catch(e){
     console.error('air hockey', e);
     ['p0','p1'].forEach(pid=>{ if(!ahFinite(A.pads[pid])) A.pads[pid] = ahPadHome(pid); });
@@ -14278,11 +14279,11 @@ function ahDraw(A){
     sub = A.myId ? (mine ? 'Hai segnato tu' : 'Ha segnato '+nameOf(A.match, A.flash.by)) : nameOf(A.match, A.flash.by);
   } else if(now < A.freezeUntil){
     msg = 'Pronti…';
-  } else if(A.paused){
-    msg = 'Pausa';
-    sub = 'Clicca sul tavolo per riprendere';
+  } else if(ahNeedsLock(A)){
+    if(A.touched && !A.online) msg = 'Pausa';
+    sub = A.touched ? 'Clicca sul tavolo per riprendere' : 'Clicca sul tavolo per giocare · Esc esce';
   } else if(!A.touched && A.myId){
-    sub = (AH_MOUSE || document.body.classList.contains('has-mouse')) ? 'Clicca sul tavolo per giocare · Esc esce' : 'Trascina il dito nella tua metà campo';
+    sub = 'Trascina il dito nella tua metà campo';
   }
   if(msg || sub){
     // scritte in pixel veri: un carattere da 0.05 unita' ingrandito dalla
@@ -14338,19 +14339,25 @@ function ahBindInput(A, c){
   // si fermava. Bloccato, il cursore sparisce e contano solo gli spostamenti:
   // la manopola parte da dove si trova e non puo' uscire dalla tua meta'.
   // Si sblocca solo con Esc (lo impone il browser).
+  // Col mouse non bloccato la manopola NON segue la freccia: prima la seguiva
+  // anche senza clic, si giocava senza mai bloccare e la freccia finiva fuori
+  // dal tavolo come prima. Se il browser rifiuta il blocco si torna alla
+  // freccia libera, per non restare fermi.
   const locked = ()=> document.pointerLockElement === c;
   const lock = ()=>{
     if(!AH || !AH.myId || locked() || !c.requestPointerLock) return;
-    try{ const pr = c.requestPointerLock(); if(pr && pr.catch) pr.catch(()=>{}); }catch(_){}
+    const A = AH;
+    A.lockFailed = false;
+    try{ const pr = c.requestPointerLock(); if(pr && pr.catch) pr.catch(()=>{ A.lockFailed = true; }); }
+    catch(_){ A.lockFailed = true; }
     if(!document.fullscreenElement) enterFullscreen();
   };
   c.addEventListener('pointerdown', e=>{
-    if(e.pointerType==='mouse' && AH && AH.myId){
+    if(AH) AH.mouse = e.pointerType==='mouse';
+    if(e.pointerType==='mouse' && AH && AH.myId && c.requestPointerLock){
       lock();
-      AH.paused = false;
       const pd = AH.pads[AH.myId];
       if(!locked() && pd) AH.pointer = { x:pd.x, y:pd.y };
-      if(!locked() && !c.requestPointerLock) move(e);
       return;
     }
     try{ c.setPointerCapture(e.pointerId); }catch(_){}
@@ -14372,17 +14379,28 @@ function ahBindInput(A, c){
       AH.pointer = pt; AH.touched = true;
       return;
     }
-    if(e.pointerType==='mouse' || e.buttons || e.pressure>0) move(e);
+    if(e.pointerType==='mouse'){
+      if(AH) AH.mouse = true;
+      if(AH && ahNeedsLock(AH)) return;
+      move(e);
+    } else if(e.buttons || e.pressure>0) move(e);
   });
 }
-// Esc toglie il blocco del mouse: da solo contro il bot la partita va in
-// pausa (senza mano sulla manopola il bot segnerebbe a porta vuota); online
-// no, l'altro sta giocando.
+// Serve il clic per bloccare il mouse? (si gioca col mouse, il browser sa
+// bloccarlo, non e' gia' bloccato e non ha appena rifiutato)
+function ahNeedsLock(A){
+  return !!(A && A.myId && A.mouse && !A.lockFailed && A.canvas && A.canvas.requestPointerLock
+    && document.pointerLockElement !== A.canvas);
+}
+// Da solo contro il bot, finche' il mouse non e' bloccato la partita e' ferma
+// (all'inizio e dopo Esc): senza mano sulla manopola il bot segnerebbe a porta
+// vuota. Online no, l'altro sta giocando.
+function ahHeld(A){ return !A.online && ahNeedsLock(A); }
 document.addEventListener('pointerlockchange', ()=>{
   if(document.pointerLockElement || !AH || !AH.myId) return;
-  if(!AH.online) AH.paused = true;
   AH.pointer = null;
 });
+document.addEventListener('pointerlockerror', ()=>{ if(AH) AH.lockFailed = true; });
 const AH_MOUSE = !!(window.matchMedia && matchMedia('(any-pointer:fine)').matches);
 window.addEventListener('resize', ()=>{ if(AH && AH.canvas && AH.canvas.isConnected){ ahSizeCanvas(AH); AH.bg = null; } });
 
