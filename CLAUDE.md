@@ -41,7 +41,7 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 
 ---
 
-## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v57`)
+## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v58`)
 
 **Giochi** (gruppi come in `GAME_CATEGORIES`):
 - *Carte*: Bisca, Scopa (anche Scopone), Briscola, Vecia, Cava Camisa, UNO,
@@ -51,6 +51,10 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 - *Casinò*: Roulette, Black Jack.
 
 **Funzioni trasversali recenti**:
+- **Schermo intero su PC** in tutte le partite: pulsante ⛶ in alto a destra
+  (`#fs-btn`, `toggleFullscreen`), visibile solo con il mouse
+  (`(any-pointer:fine)` oppure `body.has-mouse` al primo movimento del
+  mouse); si esce con Esc o con lo stesso pulsante. Sui telefoni non compare.
 - **Mazziere manuale** in tutti i giochi di carte tranne il Black Jack: il
   mazziere tocca i posti per dare le carte, con la regola del giro; pulsante
   "Dai il resto"; partita ferma finché non ha finito. Il tuo posto, invisibile
@@ -187,6 +191,11 @@ ognuno; contro chi punta quasi sempre i bot pagano fino in fondo con ~47% al
 flop / 43% al turn e rilanciano di più (`streetAggressor`).
 
 ### Air hockey (tempo reale)
+**Mouse bloccato (PC)**: il clic sul tavolo chiede Pointer Lock sul canvas
+e lo schermo intero; bloccata, la manopola si muove con `movementX/Y` a partire
+da dove si trova e il punto virtuale è tenuto nella propria metà
+(`ahClampPad`). Esc sblocca (lo impone il browser): da solo va in pausa
+(`A.paused`, il ciclo disegna ma non calcola), online no. Riclic = riprende.
 Non passa da `render()` a ogni istante: `activateAirHockey` (chiamato dopo
 l'`innerHTML`) aggancia al `<canvas id="ah-canvas">` un motore `AH` che vive
 fuori da `#app` e sopravvive ai ridisegni (`ahFrame` con

@@ -263,6 +263,13 @@ body.force-share.in-match #sync-panel{display:block !important;}
   width:34px;height:34px;border-radius:50%;padding:0;font-size:16px;line-height:34px;
   background:rgba(0,0,0,0.55);color:#F1ECE1;border:1px solid rgba(241,236,225,0.25);box-shadow:none;}
 body.ah-on{overflow:hidden;}
+/* Schermo intero: solo su PC (mouse), in ogni partita; si esce con Esc o col
+   pulsante stesso. Sopra il tavolo dell'air hockey (z-index 900). */
+.fs-btn{display:none;position:fixed;top:calc(env(safe-area-inset-top) + 6px);right:calc(env(safe-area-inset-right) + 6px);z-index:950;
+  width:34px;height:34px;border-radius:50%;padding:0;font-size:17px;line-height:34px;
+  background:rgba(0,0,0,0.55);color:#F1ECE1;border:1px solid rgba(241,236,225,0.25);box-shadow:none;}
+@media (any-pointer:fine){ body.in-match.fs-ok .fs-btn{display:block;} }
+body.has-mouse.in-match.fs-ok .fs-btn{display:block;}
 body.ah-on #chat-persistent{display:none;}
 #ah-canvas{display:block;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;border-radius:10px;}
 .poker-toolbar{margin-bottom:6px !important;}
@@ -642,6 +649,7 @@ body.in-match .hand{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:
   <div id="sync-panel" class="card"></div>
   <div id="app"></div>
   <div id="chat-persistent"></div>
+  <button id="fs-btn" class="fs-btn" onclick="toggleFullscreen()" title="Schermo intero (Esc per uscire)" aria-label="Schermo intero">⛶</button>
   <div class="risiko-rotate-hint">
     <div style="font-size:52px;">📱↻</div>
     <h2 style="margin:14px 0 6px;">Ruota il telefono</h2>
@@ -12816,6 +12824,33 @@ async function leaveGameTable(matchId, playerId){
   await render(true);
 }
 
+// --- Schermo intero (PC) ------------------------------------------------------
+function enterFullscreen(){
+  const el = document.documentElement;
+  const fn = el.requestFullscreen || el.webkitRequestFullscreen;
+  if(!fn) return;
+  try{ const pr = fn.call(el, {navigationUI:'hide'}); if(pr && pr.catch) pr.catch(()=>{}); }catch(_){}
+}
+function toggleFullscreen(){
+  if(document.fullscreenElement || document.webkitFullscreenElement){
+    const fn = document.exitFullscreen || document.webkitExitFullscreen;
+    try{ const pr = fn && fn.call(document); if(pr && pr.catch) pr.catch(()=>{}); }catch(_){}
+  } else enterFullscreen();
+}
+function updateFullscreenBtn(){
+  const b = document.getElementById('fs-btn');
+  if(!b) return;
+  const on = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  b.textContent = on ? '🗗' : '⛶';
+  b.title = on ? 'Esci dallo schermo intero (Esc)' : 'Schermo intero (Esc per uscire)';
+}
+if(document.fullscreenEnabled || document.webkitFullscreenEnabled) document.body.classList.add('fs-ok');
+document.addEventListener('fullscreenchange', updateFullscreenBtn);
+// alcuni portatili con schermo touch non si dichiarano "con mouse": il
+// pulsante compare comunque appena il mouse si muove
+window.addEventListener('pointermove', e=>{ if(e.pointerType==='mouse' && !document.body.classList.contains('has-mouse')) document.body.classList.add('has-mouse'); }, {passive:true});
+document.addEventListener('webkitfullscreenchange', updateFullscreenBtn);
+
 async function abandonMatch(){
   if(!confirm('Abbandonare la partita in corso? Non verrà salvata nello storico.')) return;
   const match = await getActiveMatch();
@@ -14049,7 +14084,7 @@ function ahFrame(ts){
   A.last = ts;
   // un errore in un fotogramma non deve fermare il gioco: si rimette a posto
   // cio' che non torna e si va avanti col fotogramma dopo
-  try{ ahUpdate(A, dt); ahDraw(A); }
+  try{ if(!A.paused) ahUpdate(A, dt); ahDraw(A); }
   catch(e){
     console.error('air hockey', e);
     ['p0','p1'].forEach(pid=>{ if(!ahFinite(A.pads[pid])) A.pads[pid] = ahPadHome(pid); });
@@ -14243,8 +14278,11 @@ function ahDraw(A){
     sub = A.myId ? (mine ? 'Hai segnato tu' : 'Ha segnato '+nameOf(A.match, A.flash.by)) : nameOf(A.match, A.flash.by);
   } else if(now < A.freezeUntil){
     msg = 'Pronti…';
+  } else if(A.paused){
+    msg = 'Pausa';
+    sub = 'Clicca sul tavolo per riprendere';
   } else if(!A.touched && A.myId){
-    sub = 'Trascina il dito nella tua metà campo';
+    sub = (AH_MOUSE || document.body.classList.contains('has-mouse')) ? 'Clicca sul tavolo per giocare · Esc esce' : 'Trascina il dito nella tua metà campo';
   }
   if(msg || sub){
     // scritte in pixel veri: un carattere da 0.05 unita' ingrandito dalla
@@ -14295,9 +14333,57 @@ function ahBindInput(A, c){
     AH.pointer = pt;
     AH.touched = true;
   };
-  c.addEventListener('pointerdown', e=>{ try{ c.setPointerCapture(e.pointerId); }catch(_){} move(e); });
-  c.addEventListener('pointermove', e=>{ if(e.pointerType==='mouse' || e.buttons || e.pressure>0) move(e); });
+  // Su PC il clic sul tavolo blocca il mouse (Pointer Lock) e passa a schermo
+  // intero: con i colpi rapidi la freccia usciva dalla finestra e la manopola
+  // si fermava. Bloccato, il cursore sparisce e contano solo gli spostamenti:
+  // la manopola parte da dove si trova e non puo' uscire dalla tua meta'.
+  // Si sblocca solo con Esc (lo impone il browser).
+  const locked = ()=> document.pointerLockElement === c;
+  const lock = ()=>{
+    if(!AH || !AH.myId || locked() || !c.requestPointerLock) return;
+    try{ const pr = c.requestPointerLock(); if(pr && pr.catch) pr.catch(()=>{}); }catch(_){}
+    if(!document.fullscreenElement) enterFullscreen();
+  };
+  c.addEventListener('pointerdown', e=>{
+    if(e.pointerType==='mouse' && AH && AH.myId){
+      lock();
+      AH.paused = false;
+      const pd = AH.pads[AH.myId];
+      if(!locked() && pd) AH.pointer = { x:pd.x, y:pd.y };
+      if(!locked() && !c.requestPointerLock) move(e);
+      return;
+    }
+    try{ c.setPointerCapture(e.pointerId); }catch(_){}
+    move(e);
+  });
+  c.addEventListener('pointermove', e=>{
+    if(locked()){
+      if(!AH || !AH.myId) return;
+      const r = c.getBoundingClientRect();
+      if(r.width < 10) return;
+      const unit = r.width / (1 + 2*AH_RX);
+      const sg = AH.myId==='p1' ? -1 : 1;
+      const base = AH.pointer || AH.pads[AH.myId];
+      const pt = { x: base.x + sg*(e.movementX||0)/unit, y: base.y + sg*(e.movementY||0)/unit };
+      // il punto virtuale resta nella tua meta': se andasse oltre, per
+      // tornare indietro bisognerebbe prima recuperare lo spostamento in piu'
+      ahClampPad(AH.myId, pt);
+      if(!isFinite(pt.x) || !isFinite(pt.y)) return;
+      AH.pointer = pt; AH.touched = true;
+      return;
+    }
+    if(e.pointerType==='mouse' || e.buttons || e.pressure>0) move(e);
+  });
 }
+// Esc toglie il blocco del mouse: da solo contro il bot la partita va in
+// pausa (senza mano sulla manopola il bot segnerebbe a porta vuota); online
+// no, l'altro sta giocando.
+document.addEventListener('pointerlockchange', ()=>{
+  if(document.pointerLockElement || !AH || !AH.myId) return;
+  if(!AH.online) AH.paused = true;
+  AH.pointer = null;
+});
+const AH_MOUSE = !!(window.matchMedia && matchMedia('(any-pointer:fine)').matches);
 window.addEventListener('resize', ()=>{ if(AH && AH.canvas && AH.canvas.isConnected){ ahSizeCanvas(AH); AH.bg = null; } });
 
 function activateAirHockey(match, claim){
