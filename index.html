@@ -12438,7 +12438,9 @@ function renderUnoMatch(match, claim){
     const elapsed = Date.now() - (match.unoPendingSince||0);
     unoEnsureCatchTicker(match.unoPendingSince);
     if(elapsed >= UNO_CATCH_WINDOW_START && elapsed <= UNO_CATCH_WINDOW_END){
-      unoPanel = `<button class="btn-secondary" style="width:100%;margin-bottom:10px;" onclick="unoCatch('${match.id}','${match.unoPending}')">Becca ${esc(nameOf(match,match.unoPending))}! Non ha detto UNO</button>`;
+      // subito sopra il pulsante UNO (richiesta del proprietario): i due
+      // pulsanti della dichiarazione stanno vicini
+      unoPanel = `<button class="btn-secondary" style="width:100%;margin:6px 0 0;" onclick="unoCatch('${match.id}','${match.unoPending}')">Becca ${esc(nameOf(match,match.unoPending))}! Non ha detto UNO</button>`;
     }
   } else {
     unoCatchTicker && clearInterval(unoCatchTicker);
@@ -12478,11 +12480,11 @@ function renderUnoMatch(match, claim){
       ${turnBanner}
       ${actionBanner}
       ${tableSvg}
+      ${unoPanel}
       ${unoBtnSmall}
       ${colorPanel}
       ${challengePanel}
       ${dumpPanel}
-      ${unoPanel}
       ${drawnPanel}
       ${!drawnForMe ? drawBtn : ''}
       <h3 class="${revealAll?'':'my-hand-title'}" style="margin:10px 0 0;">${revealAll?'Mano di '+esc(nameOf(match,displayOwner)):'La tua mano'} (${handCount})</h3>
