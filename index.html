@@ -259,6 +259,8 @@ body.force-share.in-match #sync-panel{display:block !important;}
 .ah-full{position:fixed;inset:0;z-index:900;display:flex;align-items:center;justify-content:center;
   background:radial-gradient(ellipse at 50% 40%, #2A2A28 0%, #121211 70%);
   padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);}
+.ah-ping{position:absolute;top:calc(env(safe-area-inset-top) + 14px);left:calc(env(safe-area-inset-left) + 48px);
+  font:600 12px system-ui,-apple-system,sans-serif;padding:2px 8px;border-radius:10px;background:rgba(0,0,0,0.55);pointer-events:none;}
 .ah-exit{position:absolute;top:calc(env(safe-area-inset-top) + 6px);left:calc(env(safe-area-inset-left) + 6px);
   width:34px;height:34px;border-radius:50%;padding:0;font-size:16px;line-height:34px;
   background:rgba(0,0,0,0.55);color:#F1ECE1;border:1px solid rgba(241,236,225,0.25);box-shadow:none;}
@@ -13637,7 +13639,12 @@ const AH_BOT_MAX = 2.3;      // il bot e' piu' lento di te (6): si puo' battere
 const AH_WALL_E = 0.88, AH_HIT_E = 0.9;
 const AH_GOAL_PAUSE = 1500;  // ms di pausa dopo un gol
 const AH_EDGE = 0.07;        // fascia lungo le sponde in cui un disco fermo viene liberato
-const AH_SEND_MS = 40;       // online: al massimo 25 invii al secondo
+// online: al massimo 40 invii al secondo (erano 25): con due telefoni in 4G
+// ogni millisecondo d'attesa prima dell'invio si somma al ritardo di rete
+const AH_SEND_MS = 25;
+const AH_PING_MS = 1000;     // misura del ritardo: un "ping" al secondo all'altro telefono
+const AH_PAD_AHEAD = 0.3;    // la manopola dell'altro si porta avanti al massimo di 0,3 s...
+const AH_PAD_AHEAD_D = 0.25; // ...e di 0,25 unita' (un colpo secco non la fa volare oltre)
 
 function buildAirHockeyMatch(id, names){
   const players = names.map((name,i)=>({id:'p'+i, name, isBot:false}));
@@ -13854,9 +13861,32 @@ function ahCreate(match, myId){
     ['p0','p1'].forEach(pid=>{
       if(local.has(pid)) return;
       const r = base.child('pad_'+pid);
-      const cb = s=>{ const v = s.val(); if(v) A.remote[pid] = v; };
+      const cb = s=>{ const v = s.val(); if(v){ v.rx = performance.now(); A.remote[pid] = v; } };
       r.on('value', cb); A.refs.push([r, cb]);
     });
+    // Misura del ritardo con andata e ritorno (ping_<io> -> l'altro lo
+    // rimanda in pong_<io>), tutta sull'orologio di questo telefono: la
+    // differenza tra gli orologi dei due telefoni (stimata da Firebase) in 4G
+    // puo' sbagliare di decine di ms, e la si usava per portare avanti disco
+    // e manopole. Andata e ritorno passano entrambe dal server: il ritardo tra
+    // i due telefoni e' meta' del giro.
+    const other = myId ? match.players.find(p=>p.id!==myId && !p.isBot) : null;
+    if(other){
+      A.pingTo = other.id; A.rtt = null; A.pingN = 0; A.lastPing = 0; A.lastPong = 0;
+      const pi = base.child('ping_'+other.id);
+      const onPing = s=>{ const v = s.val(); if(v) base.child('pong_'+other.id).set(v).catch(()=>{}); };
+      pi.on('value', onPing); A.refs.push([pi, onPing]);
+      const po = base.child('pong_'+myId);
+      const onPong = s=>{
+        const v = s.val();
+        if(!v || v.n !== A.pingN || v.from !== A.pingFrom) return;
+        const r = performance.now() - v.at;
+        if(!(r >= 0) || r > 5000) return;
+        A.rtt = A.rtt==null ? r : A.rtt*0.7 + r*0.3;
+        A.lastPong = performance.now();
+      };
+      po.on('value', onPong); A.refs.push([po, onPong]);
+    }
   }
   return A;
 }
@@ -13903,6 +13933,19 @@ async function ahRegisterGoal(A, conceded){
 }
 
 // --- Rete --------------------------------------------------------------------
+// ritardo stimato tra i due telefoni, in secondi (null finche' non misurato)
+function ahOneWay(A){ return A.rtt==null ? null : A.rtt/2000; }
+function ahSendPing(A){
+  if(!A.online || !A.base || !A.pingTo) return;
+  const now = performance.now();
+  if(now - A.lastPing >= AH_PING_MS){
+    A.lastPing = now;
+    // "from" distingue le sessioni: un pong rimasto da una pagina chiusa
+    // con lo stesso numero non va scambiato per una risposta
+    A.pingFrom = A.pingFrom || Math.random().toString(36).slice(2,8);
+    A.base.child('ping_'+A.myId).set({ n: ++A.pingN, at: now, from: A.pingFrom }).catch(()=>{});
+  }
+}
 function ahSendTick(A, force, handoff){
   if(!A.online || !A.base) return;
   const now = performance.now();
@@ -13953,7 +13996,8 @@ function ahOnPuckFrame(A, f){
 }
 function ahAdoptFrame(A, f, withMyPads){
   const p = { x:f.x, y:f.y, vx:f.vx, vy:f.vy };
-  const lag = Math.max(0, Math.min(0.5, (ahServerNow() - f.t)/1000));
+  const ow = ahOneWay(A);
+  const lag = Math.max(0, Math.min(0.5, ow!=null ? ow : (ahServerNow() - f.t)/1000));
   const pads = withMyPads ? [...A.local].map(id=>A.pads[id]) : [];
   const h = 1/240;
   for(let t=0; t<lag; t+=h){ if(ahStep(p, pads, Math.min(h, lag-t), null)) break; }
@@ -13985,9 +14029,16 @@ function ahUpdate(A, dt){
   ['p0','p1'].forEach(pid=>{
     const f = A.remote[pid];
     if(A.local.has(pid) || !f) return;
-    const lag = Math.max(0, Math.min(0.1, (now - f.t)/1000));
+    // portata avanti di tutto il ritardo misurato (prima al massimo 0,1 s:
+    // in 4G la si vedeva arrivare dopo che il disco era gia' rimbalzato)
+    const ow = ahOneWay(A);
+    const age = ow!=null ? ow + (performance.now() - (f.rx||performance.now()))/1000 : (now - f.t)/1000;
+    const lag = Math.max(0, Math.min(AH_PAD_AHEAD, age));
     const pd = A.pads[pid];
-    const tx = f.x + f.vx*lag, ty = f.y + f.vy*lag;
+    let dx = f.vx*lag, dy = f.vy*lag;
+    const dd = Math.hypot(dx, dy);
+    if(dd > AH_PAD_AHEAD_D){ dx *= AH_PAD_AHEAD_D/dd; dy *= AH_PAD_AHEAD_D/dd; }
+    const tx = f.x + dx, ty = f.y + dy;
     pd.x += (tx-pd.x)*0.5; pd.y += (ty-pd.y)*0.5; pd.vx = f.vx; pd.vy = f.vy;
     ahClampPad(pid, pd);
   });
@@ -14072,6 +14123,22 @@ function ahUpdate(A, dt){
   A.renderOff.x *= k; A.renderOff.y *= k;
   A.trail.push({x:A.puck.x, y:A.puck.y}); if(A.trail.length > 6) A.trail.shift();
   if(!frozen) ahSendTick(A, false);
+  ahSendPing(A); // anche nelle pause dei gol
+  ahUpdatePing(A);
+}
+// "rete NN ms" sul tavolo: ritardo tra i due telefoni (meta' del giro)
+function ahUpdatePing(A){
+  const now = performance.now();
+  if(now - (A.pingShown||0) < 500) return;
+  A.pingShown = now;
+  const el = document.getElementById('ah-ping');
+  if(!el) return;
+  if(!A.online || !A.pingTo || A.rtt==null){ el.style.display = 'none'; return; }
+  const stale = A.lastPong && now - A.lastPong > 4000;
+  const ms = Math.round(A.rtt/2);
+  el.style.display = '';
+  el.textContent = stale ? 'rete ferma' : 'rete '+ms+' ms';
+  el.style.color = stale || ms > 200 ? '#FF8A80' : (ms > 100 ? '#FFD54F' : '#A5D6A7');
 }
 function ahFrame(ts){
   const A = AH;
@@ -14457,6 +14524,7 @@ function renderAirHockeyMatch(match, claim){
   return `<div class="ah-full">
     <canvas id="ah-canvas" aria-label="Air hockey: ${nm(opp)} ${match.score[opp]||0}, ${nm(me)} ${match.score[me]||0}"></canvas>
     <button class="ah-exit" onclick="abandonMatch()" title="Abbandona" aria-label="Abbandona la partita">✕</button>
+    <div id="ah-ping" class="ah-ping" style="display:none;"></div>
   </div>`;
 }
 

@@ -41,7 +41,7 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 
 ---
 
-## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v60`)
+## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v61`)
 
 **Giochi** (gruppi come in `GAME_CATEGORIES`):
 - *Carte*: Bisca, Scopa (anche Scopone), Briscola, Vecia, Cava Camisa, UNO,
@@ -212,6 +212,17 @@ metà** (`A.owner`); al centro si passa il controllo (`ahSendTick(…, true)`,
 fotogramma con `o` = nuovo padrone). Chi riceve porta avanti il fotogramma
 con l'orologio comune (`.info/serverTimeOffset`). Il gol lo scrive chi lo
 subisce (`ahRegisterGoal`). Con un bot in sala lo muove il primo umano.
+**Ritardo (ottobre 2026, prove dei proprietari con due telefoni in 4G)**:
+invii ogni 25 ms (`AH_SEND_MS`, erano 40). Ping andata/ritorno ogni secondo
+(`ping_<id>` → l'altro rimanda in `pong_<id>`, `A.rtt` media mobile, tutto
+sull'orologio locale): `ahOneWay(A)` = metà giro, usato per portare avanti il
+disco ricevuto (`ahAdoptFrame`) e la manopola dell'altro (fino a
+`AH_PAD_AHEAD` 0,3 s e `AH_PAD_AHEAD_D` 0,25 unità; prima 0,1 s) invece della
+differenza di orologi stimata da Firebase. Indicatore "rete NN ms" in alto
+(`#ah-ping`, verde <100, giallo <200, rosso; "rete ferma" se nessuna risposta
+da 4 s). Prova con rete finta 150/300 ms + 40 di variazione: errore medio
+sulla manopola avversaria da 0,127/0,267 a 0,087/0,206 unità; disco allineato
+entro ~0,005.
 Coordinate: larghezza 1, lunghezza `AH_H`=1.6; p0 difende in basso, p1 in
 alto; la vista di p1 è girata. Bordo disegnato: sponde `AH_RX`, testate
 `AH_RY` (più spesse: c'è il contapunti).
@@ -337,6 +348,10 @@ dispatch in `render()` · `stateKeyOf` · esclusione in `packMatch` e
 
 ## 7. Cose da fare / punti aperti
 
+- **Air hockey online, ritardo**: con previsione e invii più frequenti il
+  ritardo vero resta (Firebase fa da tramite: ~150-300 ms in 4G). Soluzione
+  vera proposta e non fatta: collegamento diretto WebRTC (Firebase solo per
+  far incontrare i telefoni), con ritorno a Firebase se non si collega.
 - **Air hockey online**: provato solo con un Firebase simulato (2 browser,
   120-150 ms di ritardo, orologi sfasati di 5 s: punteggi identici, disco
   allineato). Da provare con due telefoni veri. Difficoltà del bot da tarare
