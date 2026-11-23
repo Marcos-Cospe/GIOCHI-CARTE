@@ -41,7 +41,7 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 
 ---
 
-## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v61`)
+## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v62`)
 
 **Giochi** (gruppi come in `GAME_CATEGORIES`):
 - *Carte*: Bisca, Scopa (anche Scopone), Briscola, Vecia, Cava Camisa, UNO,
@@ -275,8 +275,10 @@ Motore autonomo (`buildJoputaMatch`, `joputaCanPlay`, `joputaApplyPlay`,
   7 trasparente (giocabile su tutto), 4 fa saltare il turno (uno per ogni 4),
   Jolly su tutto e poi serve **solo** un Asso o un Jolly (anche 2/10/7 non
   bastano); si pesca fino a 3 finché c'è il mazzo; chi non può gioca raccoglie
-  la pila e salta il turno. Scelte mie, da confermare se cambiano idea: inizia
-  il primo a sinistra del mazziere; la pila si raccoglie solo se non hai mosse.
+  la pila e salta il turno. **La pila si può raccogliere anche per scelta**
+  (deciso dal proprietario, novembre 2026; i bot la raccolgono solo se
+  costretti). Scelta mia, da confermare: inizia il primo a sinistra del
+  mazziere. Sul tavolo "pila N" è scritto grande sotto la pila.
 - **Dama** (regola italiana, scelta del proprietario): la pedina muove e
   cattura solo in avanti e non cattura la dama; la dama muove e cattura di
   una sola casella, avanti e indietro, e può mangiare le dame. Priorità di

@@ -3146,7 +3146,7 @@ function renderCreaSala(){
     <div id="scala40-options-slot">${selectedGame==='scala40' ? scala40OptionsPanel() : ''}</div>
     <div id="poker-options-slot">${selectedGame==='poker' ? pokerOptionsPanel() : ''}</div>
     <div id="forza4-options-slot">${selectedGame==='forza4' ? forza4OptionsPanel() : ''}</div>
-    ${selectedGame==='joputa' ? `<p class="hint" style="margin-top:8px;">Da 2 a ${JOPUTA_MAX_PLAYERS} giocatori, mazzo doppio da Scala 40 con i jolly. 3 carte coperte, 3 scoperte sopra e 3 in mano; prima di iniziare puoi scambiare mano e scoperte. Si gioca una carta (o più uguali) uguale o più alta, altrimenti si raccoglie la pila; finché c'è il mazzo si torna a 3 in mano. Speciali: 2 azzera, 10 brucia e rigiochi, 7 trasparente, 4 fa saltare il turno, Jolly su tutto (dopo serve un Asso o un Jolly); 4 uguali di fila bruciano. L'ultimo con le carte è il Joputa.</p>` : ''}
+    ${selectedGame==='joputa' ? `<p class="hint" style="margin-top:8px;">Da 2 a ${JOPUTA_MAX_PLAYERS} giocatori, mazzo doppio da Scala 40 con i jolly. 3 carte coperte, 3 scoperte sopra e 3 in mano; prima di iniziare puoi scambiare mano e scoperte. Si gioca una carta (o più uguali) uguale o più alta, oppure si raccoglie la pila (obbligatorio se non hai carte valide, ma puoi farlo anche per scelta); finché c'è il mazzo si torna a 3 in mano. Speciali: 2 azzera, 10 brucia e rigiochi, 7 trasparente, 4 fa saltare il turno, Jolly su tutto (dopo serve un Asso o un Jolly); 4 uguali di fila bruciano. L'ultimo con le carte è il Joputa.</p>` : ''}
     ${selectedGame==='vecia' ? `<p class="hint" style="margin-top:8px;">Da 2 a ${VECIA_MAX_PLAYERS} giocatori. Si pesca a turno una carta coperta dal vicino di sinistra: chi resta con l'unico Fante di Spade spaiato è la Vecia. Partita secca, nessun punteggio.</p>` : ''}
     ${selectedGame==='battaglianavale' ? `<p class="hint" style="margin-top:8px;">Sempre e solo 2 giocatori. Posiziona le tue 5 navi, poi a turno tenta di colpire quelle nascoste dell'avversario. Chi affonda per primo tutta la flotta vince.</p>` : ''}
     ${selectedGame==='dama' ? `<p class="hint" style="margin-top:8px;">Sempre e solo 2 giocatori. La pedina muove e cattura solo in avanti e non può mai catturare una dama; la dama muove e cattura di una casella, avanti e indietro. La cattura è sempre obbligatoria (si deve prendere il maggior numero di pezzi).</p>` : ''}
@@ -3476,7 +3476,7 @@ function renderSoloSetup(){
         <span id="bot-count-label" style="font-family:'IBM Plex Mono',monospace;font-size:16px;min-width:20px;text-align:center;display:inline-block;">${botCount}</span>
         <button class="btn-secondary btn-small" type="button" onclick="changeBotCount(1)">+</button>
       </div>
-      ${selectedGame==='joputa' ? `<p class="hint" style="margin-top:8px;">Da 2 a ${JOPUTA_MAX_PLAYERS} giocatori, mazzo doppio da Scala 40 con i jolly. 3 carte coperte, 3 scoperte sopra e 3 in mano; prima di iniziare puoi scambiare mano e scoperte. Si gioca una carta (o più uguali) uguale o più alta, altrimenti si raccoglie la pila; finché c'è il mazzo si torna a 3 in mano. Speciali: 2 azzera, 10 brucia e rigiochi, 7 trasparente, 4 fa saltare il turno, Jolly su tutto (dopo serve un Asso o un Jolly); 4 uguali di fila bruciano. L'ultimo con le carte è il Joputa.</p>`
+      ${selectedGame==='joputa' ? `<p class="hint" style="margin-top:8px;">Da 2 a ${JOPUTA_MAX_PLAYERS} giocatori, mazzo doppio da Scala 40 con i jolly. 3 carte coperte, 3 scoperte sopra e 3 in mano; prima di iniziare puoi scambiare mano e scoperte. Si gioca una carta (o più uguali) uguale o più alta, oppure si raccoglie la pila (obbligatorio se non hai carte valide, ma puoi farlo anche per scelta); finché c'è il mazzo si torna a 3 in mano. Speciali: 2 azzera, 10 brucia e rigiochi, 7 trasparente, 4 fa saltare il turno, Jolly su tutto (dopo serve un Asso o un Jolly); 4 uguali di fila bruciano. L'ultimo con le carte è il Joputa.</p>`
         : vecia ? `<p class="hint" style="margin-top:8px;">Si pesca a turno una carta coperta dal vicino di sinistra: chi resta con l'unico Fante di Spade spaiato è la Vecia.</p>`
         : cavacamisa ? `<div id="cavacamisa-options-slot">${cavaCamisaOptionsPanel()}</div>`
         : uno ? `<div id="uno-options-slot">${unoOptionsPanel()}</div>`
@@ -6589,7 +6589,9 @@ function joputaHasLegalMove(m, pid){
 }
 async function joputaPickUp(matchId, pid){
   const m = await getActiveMatch();
-  if(!joputaCheckTurn(m, matchId, pid) || !m.pile.length || joputaHasLegalMove(m, pid)) return;
+  // la pila si puo' raccogliere anche per scelta, pur avendo carte valide
+  // (regola del proprietario): a volte conviene tenersi le carte buone
+  if(!joputaCheckTurn(m, matchId, pid) || !m.pile.length) return;
   const count = m.pile.length;
   m.hands[pid].push(...m.pile);
   m.pile = [];
@@ -6809,7 +6811,8 @@ function joputaTableSVG(match, myId){
       ${under ? `<image href="${scala40ImageHref(under)}" x="${cx+6*fs-5*fs}" y="${cy-pch/2-10*fs}" width="${pcw}" height="${pch}" opacity="0.55" preserveAspectRatio="xMidYMid meet"/>` : ''}
       ${top ? `<image href="${scala40ImageHref(top)}" x="${cx+6*fs}" y="${cy-pch/2-6*fs}" width="${pcw}" height="${pch}" preserveAspectRatio="xMidYMid meet"/>` : ''}
     </g>
-    <text x="${cx+6*fs+pcw/2}" y="${cy+pch/2+4*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${8*fs}" fill="#B9C4BC">pila ${match.pile.length}${match.burned?' · 🔥'+match.burned:''}</text>`;
+    <text x="${cx+6*fs+pcw/2}" y="${cy+pch/2+7*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${11*fs}" font-weight="700" fill="#F1ECE1">pila ${match.pile.length}</text>
+    ${match.burned?`<text x="${cx+6*fs+pcw/2}" y="${cy+pch/2+17*fs}" text-anchor="middle" font-family="'IBM Plex Mono',monospace" font-size="${8*fs}" fill="#B9C4BC">🔥 ${match.burned}</text>`:''}`;
   const curIdx = match.phase==='playing' ? ids.indexOf(match.currentId) : -1;
   let nextIdx = -1;
   if(curIdx>=0){ const nid = joputaNextId(match, match.currentId, 0); nextIdx = ids.indexOf(nid); }
@@ -6910,8 +6913,8 @@ function renderJoputaMatch(match, claim){
     const c = pool.find(x=>x.id===first);
     btns.push(`<button class="btn-primary" onclick="joputaPlaySelected('${match.id}','${myId}')">Gioca ${joputaSel.size>1?joputaSel.size+'× '+joputaKeyLabel(joputaKey(c)):esc(c?scala40CardLabel(c):'')}</button>`);
   }
-  if(isMyTurn && !legal && match.pile.length){
-    btns.push(`<button class="btn-danger" onclick="joputaPickUp('${match.id}','${myId}')">Raccogli la pila (${match.pile.length})</button>`);
+  if(isMyTurn && match.pile.length){
+    btns.push(`<button class="${legal?'btn-secondary':'btn-danger'}" onclick="joputaPickUp('${match.id}','${myId}')">Raccogli la pila (${match.pile.length})</button>`);
   }
   const help = !isMyTurn ? '' : canDown
     ? `<p class="hint" style="color:#D4AF6A;">Tocca una carta coperta: la giri alla cieca. Se non va, raccogli la pila.</p>`
