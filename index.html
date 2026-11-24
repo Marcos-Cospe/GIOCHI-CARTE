@@ -6834,6 +6834,51 @@ function joputaTableSVG(match, myId){
     </div>`;
 }
 
+// Regole a portata di mano durante la partita. Il riquadro sta fuori da #app:
+// render() ricostruisce #app a ogni mossa (anche dei bot) e lo chiuderebbe.
+function showJoputaRules(){
+  if(document.getElementById('joputa-rules')) return;
+  const ov = document.createElement('div');
+  ov.id = 'joputa-rules';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(10,20,16,0.82);display:flex;align-items:center;justify-content:center;padding:16px;';
+  ov.onclick = e=>{ if(e.target===ov) ov.remove(); };
+  const li = t=>`<li style="margin:4px 0;">${t}</li>`;
+  ov.innerHTML = `<div class="card" style="max-width:460px;width:100%;max-height:85vh;overflow-y:auto;margin:0;font-size:14px;line-height:1.45;color:#F1ECE1;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+      <h2 style="margin:0;">Regole del Joputa</h2>
+      <button class="btn-secondary btn-small" style="padding:4px 10px;" onclick="document.getElementById('joputa-rules').remove()" aria-label="Chiudi">✕</button>
+    </div>
+    <p style="margin:6px 0;"><b>Scopo:</b> liberarsi di tutte le carte. L'ultimo che resta con delle carte è il <b>Joputa</b>.</p>
+    <h3 style="margin:12px 0 4px;color:#D4AF6A;">Inizio</h3>
+    <ul style="margin:0;padding-left:20px;">
+      ${li('Ognuno ha <b>3 carte coperte</b> (non le vede nessuno), <b>3 scoperte</b> sopra e <b>3 in mano</b>.')}
+      ${li('Prima di iniziare puoi scambiare carte tra mano e scoperte: conviene lasciare scoperte le forti (10, 2, Jolly, Assi).')}
+      ${li('Comincia chi è a sinistra del mazziere.')}
+    </ul>
+    <h3 style="margin:12px 0 4px;color:#D4AF6A;">Il turno</h3>
+    <ul style="margin:0;padding-left:20px;">
+      ${li('Giochi una carta <b>uguale o più alta</b> di quella da battere (3 → 10 → J → Q → K → Asso). Più carte uguali si giocano insieme.')}
+      ${li('Finché c\'è il mazzo, peschi fino a tornare a 3 carte in mano.')}
+      ${li('Puoi <b>raccogliere la pila</b> quando vuoi; se non hai carte valide sei obbligato. Poi tocca al giocatore dopo.')}
+    </ul>
+    <h3 style="margin:12px 0 4px;color:#D4AF6A;">Carte speciali</h3>
+    <ul style="margin:0;padding-left:20px;">
+      ${li('<b>2</b>: si gioca su tutto e azzera la pila (dopo va bene tutto).')}
+      ${li('<b>10</b>: si gioca su tutto e brucia la pila; rigiochi tu.')}
+      ${li('<b>7</b>: si gioca su tutto ed è trasparente: chi viene dopo deve battere la carta sotto il 7.')}
+      ${li('<b>4</b>: il giocatore dopo salta il turno (uno per ogni 4 giocato).')}
+      ${li('<b>Jolly</b>: si gioca su tutto, ma dopo serve <b>solo un Asso o un Jolly</b> (2, 10 e 7 non valgono). Chi non li ha raccoglie la pila.')}
+      ${li('<b>4 carte uguali di fila</b> sulla pila la bruciano, anche messe da giocatori diversi; chi ha messo l\'ultima rigioca.')}
+    </ul>
+    <h3 style="margin:12px 0 4px;color:#D4AF6A;">Fine</h3>
+    <ul style="margin:0;padding-left:20px;">
+      ${li('Finita la mano (e il mazzo) giochi le <b>scoperte</b>, poi le <b>coperte alla cieca</b>, una per volta.')}
+      ${li('Se la coperta girata non va bene, prendi la pila più quella carta e riparti dalla mano.')}
+      ${li('Chi finisce tutte le carte è salvo; l\'ultimo rimasto è il Joputa.')}
+    </ul>
+  </div>`;
+  document.body.appendChild(ov);
+}
 function renderJoputaMatch(match, claim){
   const revealAll = claim.type==='all';
   const seatId = claim.type==='seat' ? claim.playerId : null;
@@ -6854,7 +6899,10 @@ function renderJoputaMatch(match, claim){
   const header = `
       <div class="toolbar">
         <span>Joputa · ${revealAll?'tutti visibili':esc(nameOf(match,seatId))}</span>
-        <button class="btn-danger btn-small" onclick="abandonMatch()">Abbandona</button>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button class="btn-secondary btn-small" style="padding:4px 10px;font-size:12px;" onclick="showJoputaRules()">Regole</button>
+          <button class="btn-danger btn-small" onclick="abandonMatch()">Abbandona</button>
+        </div>
       </div>`;
 
   // le mie 3 posizioni sul tavolo: coperta sotto, scoperta sopra

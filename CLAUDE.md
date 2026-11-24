@@ -41,7 +41,7 @@ file**: `index.html`. Pubblicata su GitHub Pages:
 
 ---
 
-## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v62`)
+## 2. Stato del progetto (ottobre 2026, `sw.js` = `sala-giochi-v63`)
 
 **Giochi** (gruppi come in `GAME_CATEGORIES`):
 - *Carte*: Bisca, Scopa (anche Scopone), Briscola, Vecia, Cava Camisa, UNO,
@@ -253,6 +253,11 @@ Motore autonomo (`buildJoputaMatch`, `joputaCanPlay`, `joputaApplyPlay`,
 `scheduleJoputaBotMove`, `renderJoputaMatch`). Fasi `swap` → `playing` →
 `ended`. Stato: `hands`, `faceUp`/`faceDown` (3 posizioni, `null` = giocata),
 `drawPile`, `pile`, `burned`, `finished`.
+Pulsante **"Regole"** nella barra in alto (`showJoputaRules`): riquadro
+`#joputa-rules` appeso a `body` (fuori da `#app`, così i ridisegni dei bot non
+lo chiudono) con z-index 100000, sopra le carte in volo. Se cambia una regola,
+aggiornare anche questo testo e i due paragrafi di regole in creazione sala e
+"Gioca da solo".
 
 ---
 
